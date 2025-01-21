@@ -1,0 +1,21 @@
+Category,Parameter,MIDI Input,Notes
+Oscillators,A Vol,MIDI Velocity,Oscillator A volume
+Oscillators,B Vol,MIDI Velocity,Oscillator B volume
+Oscillators,A Semi,MIDI Note Pitch,Oscillator A semitone tuning
+Oscillators,B Semi,MIDI Note Pitch,Oscillator B semitone tuning
+Oscillators,A WTPos,MIDI CC 74 (Brightness),Wavetable position for A
+Oscillators,B WTPos,MIDI CC 74 (Brightness),Wavetable position for B
+Filters,Fil Cutoff,MIDI CC 74 (Brightness),Filter cutoff frequency
+Filters,Fil Reso,MIDI CC 71 (Resonance),Filter resonance
+Filters,Fil Driv,MIDI Velocity,Filter drive based on velocity
+Envelopes,Env1 Atk,MIDI CC 64 (Sustain Pedal),Envelope 1 attack time
+Envelopes,Env1 Dec,MIDI Velocity,Envelope 1 decay time
+Envelopes,Env1 Sus,MIDI CC 64 (Sustain Pedal),Envelope 1 sustain level
+Envelopes,Env1 Rel,MIDI CC 1 (Mod Wheel),Envelope 1 release time
+LFOs,LFO1Rate,MIDI Tempo,LFO 1 rate synced to tempo
+LFOs,LFO1 Depth,MIDI CC 1 (Mod Wheel),LFO 1 modulation depth
+Effects,Reverb Wet,MIDI CC 91 (Reverb Send),Reverb mix level
+Effects,Delay Wet,MIDI CC 93 (Delay Send),Delay mix level
+Global,MasterVol,MIDI CC 7 (Volume),Master volume control
+Global,PortTime,MIDI CC 5 (Portamento Time),Glide time between notes
+Global,Pitch Bend,MIDI Pitch Bend,Pitch modulation for all oscillators
