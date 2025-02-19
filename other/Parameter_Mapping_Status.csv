@@ -1,0 +1,21 @@
+Category,Parameter,Mapped
+Oscillators,A Vol,Yes
+Oscillators,B Vol,Yes
+Oscillators,A Semi,Yes
+Oscillators,B Semi,Yes
+Oscillators,A WTPos,No
+Oscillators,B WTPos,No
+Filters,Fil Cutoff,No
+Filters,Fil Reso,No
+Filters,Fil Driv,Yes
+Envelopes,Env1 Atk,No
+Envelopes,Env1 Dec,Yes
+Envelopes,Env1 Sus,No
+Envelopes,Env1 Rel,No
+LFOs,LFO1Rate,Yes
+LFOs,LFO1 Depth,No
+Effects,Reverb Wet,Yes
+Effects,Delay Wet,Yes
+Global,MasterVol,No
+Global,PortTime,Yes
+Global,Pitch Bend,Yes
