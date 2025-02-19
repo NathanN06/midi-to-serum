@@ -11,7 +11,6 @@ def load_mapping(csv_path):
         mapping = {}
         for _, row in mapping_data.iterrows():
             index = int(row["Index"])  # Make sure the CSV column is present
-            # You can store a dictionary of info for each parameter if needed
             mapping[index] = {
                 "Category": row["Category"],
                 "Parameter": row["Parameter"],
@@ -68,7 +67,6 @@ def map_midi_to_serum(midi_data, mapping_config):
                     "Env1 Sus": 0.8,
                     "Env1 Rel": 0.4
                 }
-                # Use the original parameter name for default lookup, if needed.
                 serum_parameters[param_key] = defaults.get(mapping["Parameter"], 0.0)
 
         except Exception as e:
