@@ -1287,6 +1287,10 @@
   "pitch_wheel": 0.0,
   "osc_1_wave": 0,
   "osc_1_wavetable_position": 0.5,
+  "env_1_attack": 0.19490244603121523,
+  "env_1_decay": 0.1,
+  "env_1_sustain": 0.7266714958537855,
+  "env_1_release": 0.18107661142477544,
   "lfo_1_frequency": 0.25,
   "lfo_1_shape": 0
 }

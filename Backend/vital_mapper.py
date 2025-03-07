@@ -283,6 +283,104 @@ def load_default_vital_preset(default_preset_path):
         return None
 
 
+def generate_lfo_shape_from_cc(cc_data, num_points=16):
+    """
+    Generates an LFO shape based on MIDI CC automation.
+    Converts CC values into normalized LFO points.
+    """
+    if not cc_data:
+        print("⚠️ No MIDI CC data found. Skipping LFO generation.")
+        return None
+
+    # Sort CCs by time and normalize time range (0.0 to 1.0)
+    cc_data = sorted(cc_data, key=lambda x: x["time"])
+    times = np.array([cc["time"] for cc in cc_data])
+    values = np.array([cc["value"] / 127.0 for cc in cc_data])  # Normalize CC values
+
+    # Resample CC points to fit `num_points`
+    resampled_times = np.linspace(times[0], times[-1], num_points)
+    resampled_values = np.interp(resampled_times, times, values)  # Interpolate
+
+    # Convert to LFO JSON format
+    lfo_shape = {
+        "name": "MIDI_CC_LFO",
+        "num_points": num_points,
+        "points": list(resampled_times) + list(resampled_values),
+        "powers": [0.0] * num_points,  # Linear interpolation
+        "smooth": True
+    }
+
+    print(f"✅ Created LFO from MIDI CC: {lfo_shape}")
+    return lfo_shape
+
+
+def add_envelopes_to_preset(preset, notes):
+    """
+    Adds ADSR envelope settings to the Vital preset based on MIDI note characteristics.
+    """
+    if not notes:
+        print("⚠️ No notes found in MIDI. Using default envelope settings.")
+        preset.update({
+            "env_1_attack": 0.01,
+            "env_1_decay": 0.3,
+            "env_1_sustain": 0.8,
+            "env_1_release": 0.5
+        })
+        return
+
+    # Compute average note duration and velocity
+    avg_note_length = sum(n["end"] - n["start"] for n in notes) / len(notes)
+    avg_velocity = sum(n["velocity"] for n in notes) / len(notes)
+
+    # Scale values to fit reasonable Vital ADSR times
+    attack_time = min(avg_note_length * 0.1, 1.0)  # 10% of note length (max 1 sec)
+    decay_time = min(avg_note_length * 0.2, 1.5)   # 20% of note length (max 1.5 sec)
+    sustain_level = avg_velocity / 127.0           # Normalize velocity (0 to 1)
+    release_time = min(avg_note_length * 0.3, 2.0) # 30% of note length (max 2 sec)
+
+    # Apply to ENV1 (Amplitude Envelope)
+    preset.update({
+        "env_1_attack": attack_time,
+        "env_1_decay": decay_time,
+        "env_1_sustain": sustain_level,
+        "env_1_release": release_time
+    })
+
+    print(f"✅ Set ENV1 (Amplitude Envelope): A={attack_time}s, D={decay_time}s, S={sustain_level}, R={release_time}s")
+
+    # Optional: Assign ENV2 to filter if needed
+    preset.update({
+        "env_2_attack": attack_time * 0.8,  # Slightly faster attack
+        "env_2_decay": decay_time * 0.9,
+        "env_2_sustain": sustain_level * 0.9,
+        "env_2_release": release_time * 1.2
+    })
+    print("✅ Set ENV2 (Potential Filter Envelope)")
+
+
+def add_lfos_to_preset(preset, cc_data, lfo_target="filter_1_cutoff"):
+    """
+    Adds an LFO modulation to the Vital preset based on MIDI CC data.
+    """
+    lfo_shape = generate_lfo_shape_from_cc(cc_data)
+    if not lfo_shape:
+        return
+
+    if "lfos" not in preset:
+        preset["lfos"] = []
+
+    preset["lfos"].append(lfo_shape)
+
+    # Assign modulation (LFO1 → target parameter)
+    preset["modulations"].append({
+        "source": "lfo_1",
+        "destination": lfo_target,
+        "amount": 0.7  # Adjust modulation depth
+    })
+
+    print(f"✅ Added LFO1 modulation: {lfo_target} with 70% depth.")
+
+
 def set_vital_parameter(preset, param_name, value):
     """
     Safely set a Vital parameter, respecting whether it lives top-level or in 'settings'.
@@ -488,31 +586,23 @@ def modify_vital_preset(vital_preset, midi_data, snapshot_method="1"):
     and the 3 separate wave_data strings.
     Ensures wave_source = "sample" for each keyframe, so Vital sees custom wave_data.
     """
-    import copy
 
-    # Make a copy so we don't overwrite the original preset in memory
+    # Make a deep copy to prevent modifying the original preset
     modified_preset = copy.deepcopy(vital_preset)
     notes = midi_data.get("notes", [])
     ccs = midi_data.get("control_changes", [])
     pitch_bends = midi_data.get("pitch_bends", [])
 
-    # --- Your existing code to update settings based on snapshot_method ---
+    # --- Apply MIDI note-based settings ---
     update_settings(modified_preset, notes, snapshot_method)
 
     # --- Apply MIDI CC modulations / direct param mapping ---
-    cc_map = {}
-    for cc in ccs:
-        cc_map[cc["controller"]] = cc["value"] / 127.0
+    cc_map = {cc["controller"]: cc["value"] / 127.0 for cc in ccs}
     apply_cc_modulations(modified_preset, cc_map)
 
-    # --- Handle average pitch, filter, reverb, etc. if desired ---
-    if notes:
-        avg_pitch = sum(n["pitch"] for n in notes) / len(notes)
-        avg_vel = sum(n["velocity"] for n in notes) / len(notes)
-
-    # --- Handle pitch bends ---
+    # --- Handle Pitch Bends ---
     if pitch_bends:
-        last_bend = pitch_bends[-1]
+        last_bend = pitch_bends[-1]  # Use the last pitch bend event
         modified_preset["pitch_wheel"] = last_bend["pitch"] / 8192.0
     else:
         modified_preset["pitch_wheel"] = 0.0
@@ -520,7 +610,7 @@ def modify_vital_preset(vital_preset, midi_data, snapshot_method="1"):
     # --- Generate 3 separate frames of wavetable data ---
     frame_data_list = generate_three_frame_wavetables(midi_data, num_frames=3, frame_size=2048)
 
-    # Ensure oscillator 1 is turned on and points to our new wave
+    # --- Ensure Oscillator 1 is Enabled and Set to Custom Wavetable ---
     modified_preset["osc_1_wave"] = 0
     modified_preset["osc_1_wavetable_position"] = 0.5
     if "settings" not in modified_preset:
@@ -528,19 +618,50 @@ def modify_vital_preset(vital_preset, midi_data, snapshot_method="1"):
     modified_preset["settings"]["osc_1_on"] = 1.0
     modified_preset["settings"]["osc_1_wavetable_index"] = 0
 
-    # --- (Optional) LFO mod if enough notes ---
+    # --- Apply Envelope Modulation (Based on MIDI Envelope Extraction) ---
+    if notes:
+        avg_attack = sum(n["attack"] for n in notes) / len(notes)
+        avg_decay = sum(n["decay"] for n in notes) / len(notes)
+        avg_sustain = sum(n["sustain"] for n in notes) / len(notes)
+        avg_release = sum(n["release"] for n in notes) / len(notes)
+
+        # Assign envelope parameters to Vital's Envelope 1
+        modified_preset["env_1_attack"] = avg_attack
+        modified_preset["env_1_decay"] = avg_decay
+        modified_preset["env_1_sustain"] = avg_sustain
+        modified_preset["env_1_release"] = avg_release
+
+        # Debug Print
+        print(f"🔍 Applied ADSR Envelope: A={avg_attack}, D={avg_decay}, S={avg_sustain}, R={avg_release}")
+
+    # --- Apply LFO Modulations (LFO Speed, Depth, etc.) ---
+    if 1 in cc_map:  # Mod Wheel (LFO Rate Control)
+        mod_value = cc_map[1]  # Normalized value 0 to 1
+        modified_preset["lfo_1_frequency"] = mod_value * 5.0  # Scale for Vital's range
+
+    if 11 in cc_map:  # Expression (LFO Depth)
+        exp_value = cc_map[11]
+        modified_preset["modulations"].append({
+            "source": "lfo_1",
+            "destination": "osc_1_level",
+            "amount": exp_value
+        })
+
+    # --- Ensure LFO Modulation Exists ---
+    if "modulations" not in modified_preset:
+        modified_preset["modulations"] = []
+
+    # Add LFO 1 -> Wavetable Position Modulation (if there are enough notes)
     if len(notes) > 4:
         modified_preset["lfo_1_frequency"] = 0.25
         modified_preset["lfo_1_shape"] = 0
-        if "modulations" not in modified_preset:
-            modified_preset["modulations"] = []
         modified_preset["modulations"].append({
             "source": "lfo_1",
             "destination": "osc_1_wavetable_position",
             "amount": 0.5
         })
 
-    # --- CRUCIAL: Replace `wave_data` in the preset with the generated frames ---
+    # --- Replace `wave_data` in the preset with the generated frames ---
     if "groups" in modified_preset and len(modified_preset["groups"]) > 0:
         group0 = modified_preset["groups"][0]
         if "components" in group0 and len(group0["components"]) > 0:
@@ -557,7 +678,8 @@ def modify_vital_preset(vital_preset, midi_data, snapshot_method="1"):
                     keyframes[i]["wave_data"] = frame_data_list[i]
                     keyframes[i]["wave_source"] = {"type": "sample"}
 
-    # Return the updated preset dict and the list of 3 base64 frames
+    print("✅ Successfully applied LFOs, Envelopes, and Wavetables to Vital preset.")
+    
     return modified_preset, frame_data_list
 
 
