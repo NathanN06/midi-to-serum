@@ -9,239 +9,8 @@ import re
 from midi_analysis import estimate_frame_count
 import numpy as np
 import os
-
-# MIDI CC -> Vital parameter mapping (labels here are just examples)
-MIDI_TO_VITAL_MAP = {
-    0: "bank_select",
-    1: "mod_wheel",
-    2: "macro2",
-    3: "macro3",
-    4: "macro4",
-    5: "portamento_time",
-    6: "data_entry",
-    7: "osc_1_level",
-    8: "osc_2_level",
-    9: "osc_3_level",
-    10: "osc_1_pan",
-    11: "macro4",
-    12: "effect_1_mix",
-    13: "effect_2_mix",
-    14: "lfo_1_rate",
-    15: "lfo_2_rate",
-    16: "lfo_3_rate",
-    17: "lfo_4_rate",
-    18: "osc_1_transpose",
-    19: "osc_2_transpose",
-    20: "macro1",
-    21: "macro2",
-    22: "macro3",
-    23: "macro4",
-    24: "osc_1_wavetable_position",
-    25: "osc_2_wavetable_position",
-    26: "osc_3_wavetable_position",
-    27: "lfo_1_phase",
-    28: "lfo_2_phase",
-    29: "lfo_3_phase",
-    30: "lfo_4_phase",
-    31: "effect_1_depth",
-    32: "effect_2_depth",
-    33: "effect_3_depth",
-    34: "effect_4_depth",
-    35: "effect_5_depth",
-    36: "osc_1_sync",
-    37: "osc_2_sync",
-    38: "osc_3_sync",
-    39: "osc_1_detune",
-    40: "osc_2_detune",
-    41: "osc_3_detune",
-    42: "filter_1_cutoff",
-    43: "filter_1_resonance",
-    44: "filter_1_drive",
-    45: "filter_2_cutoff",
-    46: "filter_2_resonance",
-    47: "filter_2_drive",
-    48: "env_1_attack",
-    49: "env_1_decay",
-    50: "env_1_sustain",
-    51: "env_1_release",
-    52: "env_2_attack",
-    53: "env_2_decay",
-    54: "env_2_sustain",
-    55: "env_2_release",
-    56: "env_3_attack",
-    57: "env_3_decay",
-    58: "env_3_sustain",
-    59: "env_3_release",
-    60: "env_4_attack",
-    61: "env_4_decay",
-    62: "env_4_sustain",
-    63: "env_4_release",
-    64: "env_1_sustain",
-    65: "portamento_on",
-    66: "osc_1_wavetable_blend",
-    67: "osc_2_wavetable_blend",
-    68: "osc_3_wavetable_blend",
-    69: "filter_1_blend",
-    70: "filter_1_drive",
-    71: "filter_1_resonance",
-    72: "env_1_release",
-    73: "env_1_attack",
-    74: "filter_1_cutoff",
-    75: "env_1_decay",
-    76: "lfo_1_depth",
-    77: "lfo_2_depth",
-    78: "lfo_3_depth",
-    79: "lfo_4_depth",
-    80: "osc_2_level",
-    81: "osc_3_level",
-    82: "osc_1_phase",
-    83: "osc_2_phase",
-    84: "osc_3_phase",
-    85: "filter_2_drive",
-    86: "filter_2_blend",
-    87: "filter_2_resonance",
-    88: "effect_1_feedback",
-    89: "effect_2_feedback",
-    90: "effect_3_feedback",
-    91: "reverb_dry_wet",
-    92: "effect_2_rate",
-    93: "chorus_dry_wet",
-    94: "delay_time",
-    95: "phaser_dry_wet",
-    96: "data_increment",
-    97: "data_decrement",
-    98: "macro1",
-    99: "macro2",
-    100: "macro3",
-    101: "macro4",
-    102: "filter_2_cutoff",
-    103: "filter_2_resonance",
-    104: "filter_2_drive",
-    105: "lfo_1_depth",
-    106: "lfo_2_depth",
-    107: "lfo_3_depth",
-    108: "lfo_4_depth",
-    109: "lfo_1_phase",
-    110: "lfo_2_phase",
-    111: "lfo_3_phase",
-    112: "delay_feedback",
-    113: "eq_low_gain",
-    114: "eq_mid_gain",
-    115: "eq_high_gain",
-    116: "distortion_drive",
-    117: "compressor_threshold",
-    118: "compressor_ratio",
-    119: "flanger_dry_wet",
-    120: "all_sound_off",
-    121: "reset_all_controllers",
-    122: "local_control",
-    123: "all_notes_off",
-    124: "omni_off",
-    125: "omni_on",
-    126: "mono_on",
-    127: "poly_on",
-}
-
-
-MIDI_TO_VITAL_MAP.update({
-    32: "phaser_rate",
-    33: "phaser_depth",
-    34: "phaser_feedback",
-    35: "eq_low_freq",
-    36: "eq_low_gain",
-    37: "eq_mid_freq",
-    38: "eq_mid_gain",
-    39: "eq_high_freq",
-    40: "eq_high_gain",
-    41: "compressor_threshold",
-    42: "compressor_ratio",
-    43: "compressor_attack",
-    44: "compressor_release",
-    45: "distortion_drive",
-    46: "distortion_mix",
-    47: "delay_time",
-    48: "delay_feedback",
-    49: "delay_wet",
-    50: "reverb_size",
-    51: "reverb_decay",
-    52: "reverb_dry_wet",
-    53: "chorus_rate",
-    54: "chorus_depth",
-    55: "chorus_mix",
-    56: "custom_wavetable_1",
-    57: "custom_wavetable_2",
-    58: "custom_wavetable_3",
-    59: "custom_wavetable_4",
-    60: "mod_matrix_1",
-    61: "mod_matrix_2",
-    62: "mod_matrix_3",
-    63: "mod_matrix_4"
-})
-
-
-def parse_midi(file_path):
-    """
-    Parse a MIDI file to extract notes, control changes, tempo, pitch bends,
-    time signatures, and key signatures.
-    """
-    try:
-        midi_data = pretty_midi.PrettyMIDI(file_path)
-
-        # Extract tempo
-        tempo = midi_data.estimate_tempo()
-
-        # Extract notes
-        notes = [
-            {
-                "pitch": note.pitch,
-                "velocity": note.velocity,
-                "start": note.start,
-                "end": note.end
-            }
-            for instrument in midi_data.instruments
-            for note in instrument.notes
-        ]
-
-        # Extract control changes
-        control_changes = [
-            {
-                "controller": cc.number,
-                "value": cc.value,
-                "time": cc.time
-            }
-            for instrument in midi_data.instruments
-            for cc in instrument.control_changes
-        ]
-
-        # Extract pitch bends
-        pitch_bends = [
-            {
-                "pitch": pb.pitch,
-                "time": pb.time
-            }
-            for instrument in midi_data.instruments
-            for pb in instrument.pitch_bends
-        ]
-
-        print("\n🔍 Debug: Parsed MIDI Data")
-        print(f"Notes: {len(notes)}, CCs: {len(control_changes)}, Pitch Bends: {len(pitch_bends)}")
-
-        return {
-            "tempo": tempo,
-            "notes": notes,
-            "control_changes": control_changes,
-            "pitch_bends": pitch_bends
-        }
-
-    except Exception as e:
-        print(f"❌ Error parsing MIDI file: {e}")
-        return {
-            "tempo": None,
-            "notes": [],
-            "control_changes": [],
-            "pitch_bends": []
-        }
-
+from midi_parser import parse_midi
+from config import MIDI_TO_VITAL_MAP, DEFAULT_ADSR, DEFAULT_WAVEFORM, HARMONIC_SCALING, OUTPUT_DIR
 
 def load_default_vital_preset(default_preset_path):
     """
@@ -317,28 +86,31 @@ def generate_lfo_shape_from_cc(cc_data, num_points=16):
 def add_envelopes_to_preset(preset, notes):
     """
     Adds ADSR envelope settings to the Vital preset based on MIDI note characteristics.
+    If notes lack velocity variation, ADSR values are inferred from duration.
     """
     if not notes:
         print("⚠️ No notes found in MIDI. Using default envelope settings.")
         preset.update({
-            "env_1_attack": 0.01,
-            "env_1_decay": 0.3,
-            "env_1_sustain": 0.8,
-            "env_1_release": 0.5
+            "env_1_attack": DEFAULT_ADSR["attack"],
+            "env_1_decay": DEFAULT_ADSR["decay"],
+            "env_1_sustain": DEFAULT_ADSR["sustain"],
+            "env_1_release": DEFAULT_ADSR["release"]
         })
         return
 
-    # Compute average note duration and velocity
+    # Compute average note duration
     avg_note_length = sum(n["end"] - n["start"] for n in notes) / len(notes)
+    
+    # Compute velocity-based sustain
     avg_velocity = sum(n["velocity"] for n in notes) / len(notes)
+    sustain_level = avg_velocity / 127.0 if avg_velocity > 0 else 0.5  # Avoid division errors
 
-    # Scale values to fit reasonable Vital ADSR times
-    attack_time = min(avg_note_length * 0.1, 1.0)  # 10% of note length (max 1 sec)
-    decay_time = min(avg_note_length * 0.2, 1.5)   # 20% of note length (max 1.5 sec)
-    sustain_level = avg_velocity / 127.0           # Normalize velocity (0 to 1)
-    release_time = min(avg_note_length * 0.3, 2.0) # 30% of note length (max 2 sec)
+    # Scale ADSR parameters based on note length
+    attack_time = min(avg_note_length * 0.05, 0.2)  # Max 200ms attack
+    decay_time = min(avg_note_length * 0.15, 0.7)   # Max 700ms decay
+    release_time = min(avg_note_length * 0.3, 1.5)  # Max 1.5s release
 
-    # Apply to ENV1 (Amplitude Envelope)
+    # Apply ADSR settings
     preset.update({
         "env_1_attack": attack_time,
         "env_1_decay": decay_time,
@@ -346,29 +118,57 @@ def add_envelopes_to_preset(preset, notes):
         "env_1_release": release_time
     })
 
-    print(f"✅ Set ENV1 (Amplitude Envelope): A={attack_time}s, D={decay_time}s, S={sustain_level}, R={release_time}s")
+    print(f"✅ Adaptive ENV1: A={attack_time}s, D={decay_time}s, S={sustain_level}, R={release_time}s")
 
-    # Optional: Assign ENV2 to filter if needed
+    # Apply a similar ADSR envelope to ENV2 (for filter modulation)
     preset.update({
-        "env_2_attack": attack_time * 0.8,  # Slightly faster attack
-        "env_2_decay": decay_time * 0.9,
+        "env_2_attack": attack_time * 0.7,  # Slightly faster attack
+        "env_2_decay": decay_time * 0.8,
         "env_2_sustain": sustain_level * 0.9,
         "env_2_release": release_time * 1.2
     })
-    print("✅ Set ENV2 (Potential Filter Envelope)")
+    print("✅ ENV2 (Filter Envelope) Applied")
 
 
-def add_lfos_to_preset(preset, cc_data, lfo_target="filter_1_cutoff"):
+def add_lfos_to_preset(preset, cc_data, notes, lfo_target="filter_1_cutoff"):
     """
     Adds an LFO modulation to the Vital preset based on MIDI CC data.
+    If no CC data is available, generates an adaptive LFO based on note timing.
     """
-    lfo_shape = generate_lfo_shape_from_cc(cc_data)
-    if not lfo_shape:
-        return
+    # Check if CC data exists
+    if not cc_data:
+        print("⚠️ No MIDI CC data found. Generating LFO from note timing instead.")
 
+        # Estimate LFO rate from average note duration
+        if notes:
+            avg_note_duration = sum(n["end"] - n["start"] for n in notes) / len(notes)
+            lfo_rate = max(0.5, min(8.0, 1.0 / avg_note_duration))  # LFO rate between 0.5Hz and 8Hz
+        else:
+            lfo_rate = 1.0  # Default rate
+
+        lfo_shape = {
+            "name": "Adaptive_LFO",
+            "num_points": 16,
+            "points": [0.0, 0.25, 0.5, 0.75, 1.0] * 2,  # Simple up-down LFO
+            "powers": [0.0] * 16,  # Linear interpolation
+            "smooth": True
+        }
+
+        print(f"✅ Adaptive LFO generated at {lfo_rate}Hz")
+
+    else:
+        # Generate LFO from CC automation
+        lfo_shape = generate_lfo_shape_from_cc(cc_data)
+        if not lfo_shape:
+            return
+
+        # Set a random frequency to create slight variations
+        lfo_rate = 2.0 + np.random.uniform(-0.5, 0.5)
+
+    # Apply LFO to the preset
     if "lfos" not in preset:
         preset["lfos"] = []
-
+    
     preset["lfos"].append(lfo_shape)
 
     # Assign modulation (LFO1 → target parameter)
@@ -377,8 +177,9 @@ def add_lfos_to_preset(preset, cc_data, lfo_target="filter_1_cutoff"):
         "destination": lfo_target,
         "amount": 0.7  # Adjust modulation depth
     })
+    preset["lfo_1_frequency"] = lfo_rate
 
-    print(f"✅ Added LFO1 modulation: {lfo_target} with 70% depth.")
+    print(f"✅ Applied LFO1 → {lfo_target} at {lfo_rate} Hz")
 
 
 def set_vital_parameter(preset, param_name, value):
@@ -463,52 +264,80 @@ def add_modulations(modified_preset, ccs):
     print(json.dumps(modified_preset.get("modulations", []), indent=2))
 
 
-def generate_frame_waveform(midi_data, frame_idx, num_frames, frame_size):
+def generate_frame_waveform(midi_data, frame_idx, num_frames, frame_size, waveform_type="saw"):
     """
-    Generate a single frame waveform in float32 format (Vital requirement).
-    Each frame is a snapshot of harmonic content from MIDI data.
+    Generates a single frame waveform in float32 format (Vital requirement).
+    - Supports 'sine', 'saw', 'square', 'triangle', and 'pulse' waveforms.
+    - Dynamically scales harmonics based on MIDI velocity & CC data.
+    - Morphs the waveform across frames for richer wavetables.
     """
+
     notes = midi_data.get("notes", [])
+    ccs = {cc["controller"]: cc["value"] / 127.0 for cc in midi_data.get("control_changes", [])}
+
     if not notes:
         notes = [{"pitch": 69, "velocity": 100}]  # Default to A4 with medium velocity
 
     note_idx = frame_idx % len(notes)
     note = notes[note_idx]
     pitch = note["pitch"]
-    velocity = note["velocity"] / 127.0
+    velocity = note["velocity"] / 127.0  # Normalize velocity (0-1)
 
     # Convert MIDI pitch to frequency
     freq = 440.0 * (2.0 ** ((pitch - 69.0) / 12.0))
 
-    # Generate waveform with harmonics
+    # Mod Wheel (CC1) can control harmonic intensity
+    harmonic_boost = HARMONIC_SCALING.get(waveform_type, 1) * ccs.get(1, 0.5)  # Default to 0.5 if CC1 is absent
+
+    # Create phase space
     phase = np.linspace(0, 2 * np.pi, frame_size, endpoint=False)
-    morph = frame_idx / (num_frames - 1) if num_frames > 1 else 0
 
-    waveform = 0.5 * np.sin(phase) + 0.3 * np.cos(2 * phase)
+    # Determine harmonic scaling per frame (morphing effect)
+    frame_morph = frame_idx / (num_frames - 1)  # Ranges from 0 to 1
+    harmonic_intensity = (velocity * harmonic_boost) * (0.5 + 0.5 * frame_morph)  # More harmonics in later frames
 
-    num_harmonics = max(3, int(10 * velocity))  # More harmonics for higher velocity
-    for h in range(2, num_harmonics + 1):
-        harmonic_amp = velocity * (1.0 / h)
-        phase_shift = morph * (h * 0.2 * np.pi)
-        waveform += harmonic_amp * np.sin(h * phase + phase_shift)
+    # Generate waveforms
+    if waveform_type == "sine":
+        waveform = np.sin(phase)
+
+    elif waveform_type == "saw":
+        waveform = np.sum([(1.0 / h) * np.sin(h * phase) for h in range(1, int(10 * harmonic_intensity))], axis=0)
+
+    elif waveform_type == "square":
+        waveform = np.sum([(1.0 / h) * np.sin(h * phase) for h in range(1, int(10 * harmonic_intensity), 2)], axis=0)
+
+    elif waveform_type == "triangle":
+        waveform = np.sum([(1.0 / h**2) * (-1)**((h-1)//2) * np.sin(h * phase) for h in range(1, int(10 * harmonic_intensity), 2)], axis=0)
+
+    elif waveform_type == "pulse":
+        pulse_width = ccs.get(2, 0.5)  # CC2 controls pulse width, default 0.5
+        waveform = np.where(phase < (2 * np.pi * pulse_width), 1, -1)
+
+    else:
+        waveform = np.sin(phase)  # Default to sine
+
+    # Apply harmonic intensity scaling
+    waveform *= harmonic_intensity
 
     # Normalize the waveform
-    waveform = waveform / np.max(np.abs(waveform))
+    waveform /= np.max(np.abs(waveform))
 
-    return waveform.astype(np.float32)  # Return as float32
+    return waveform.astype(np.float32)
 
-
-def generate_three_frame_wavetables(midi_data, num_frames=3, frame_size=2048):
+def generate_three_frame_wavetables(midi_data, num_frames=3, frame_size=2048, waveform_type="saw"):
     """
     Generates 'num_frames' separate Base64-encoded wave_data strings for Vital.
-    Each one is a 2048-sample float32 array.
+    - Supports multiple waveform types ('sine', 'saw', 'square', 'triangle')
+    - Dynamically adjusts harmonics using MIDI velocity and CC data.
     """
+
     frame_data_list = []
 
     for frame_idx in range(num_frames):
-        waveform = generate_frame_waveform(midi_data, frame_idx, num_frames, frame_size)
+        # Generate a waveform for this frame
+        waveform = generate_frame_waveform(midi_data, frame_idx, num_frames, frame_size, waveform_type)
         
-        # Convert to raw bytes (float32 format)
+        # Convert waveform to raw bytes (float32 format)
         raw_bytes = waveform.tobytes()
         
         # Base64 encode
@@ -579,15 +408,34 @@ def replace_three_wavetables(json_data, frame_data_list):
     return result
 
 
-def modify_vital_preset(vital_preset, midi_data, snapshot_method="1"):
+def modify_vital_preset(vital_preset, midi_file, snapshot_method="1"):
     """
-    Modifies the Vital preset using extracted MIDI data,
-    and returns both the modified preset JSON (as a dict)
-    and the 3 separate wave_data strings.
+    Modifies the Vital preset using parsed MIDI data.
     Ensures wave_source = "sample" for each keyframe, so Vital sees custom wave_data.
     """
 
-    # Make a deep copy to prevent modifying the original preset
+    # 🔍 Debug: Print what type of data is received
+    print(f"🔍 Debug: Received midi_file of type {type(midi_file)}")
+
+    # ✅ Ensure `midi_file` is processed correctly
+    try:
+        if isinstance(midi_file, dict):
+            print("⚠️ Warning: Expected file path, but received a dictionary. Using existing parsed MIDI data.")
+            midi_data = midi_file  # Already parsed, assign it directly
+        elif isinstance(midi_file, str):
+            print(f"📂 Parsing MIDI file: {midi_file}")
+            midi_data = parse_midi(midi_file)  # ✅ Parse MIDI if it's a file path
+        else:
+            raise ValueError(f"Invalid type for midi_file: {type(midi_file)} (Expected str or dict)")
+
+        if not midi_data:
+            print("⚠️ Warning: MIDI parsing returned no data. Using default empty MIDI structure.")
+            midi_data = {"notes": [], "control_changes": [], "pitch_bends": []}
+    except Exception as e:
+        print(f"❌ Error parsing MIDI file: {e}")
+        midi_data = {"notes": [], "control_changes": [], "pitch_bends": []}
+
+    # ✅ Create a deep copy to prevent modifying the original preset
     modified_preset = copy.deepcopy(vital_preset)
     notes = midi_data.get("notes", [])
     ccs = midi_data.get("control_changes", [])
@@ -608,13 +456,12 @@ def modify_vital_preset(vital_preset, midi_data, snapshot_method="1"):
         modified_preset["pitch_wheel"] = 0.0
 
     # --- Generate 3 separate frames of wavetable data ---
-    frame_data_list = generate_three_frame_wavetables(midi_data, num_frames=3, frame_size=2048)
+    frame_data_list = generate_three_frame_wavetables(midi_data, num_frames=3, frame_size=2048, waveform_type=DEFAULT_WAVEFORM)
 
     # --- Ensure Oscillator 1 is Enabled and Set to Custom Wavetable ---
     modified_preset["osc_1_wave"] = 0
     modified_preset["osc_1_wavetable_position"] = 0.5
-    if "settings" not in modified_preset:
-        modified_preset["settings"] = {}
+    modified_preset.setdefault("settings", {})
     modified_preset["settings"]["osc_1_on"] = 1.0
     modified_preset["settings"]["osc_1_wavetable_index"] = 0
 
@@ -631,7 +478,6 @@ def modify_vital_preset(vital_preset, midi_data, snapshot_method="1"):
         modified_preset["env_1_sustain"] = avg_sustain
         modified_preset["env_1_release"] = avg_release
 
-        # Debug Print
         print(f"🔍 Applied ADSR Envelope: A={avg_attack}, D={avg_decay}, S={avg_sustain}, R={avg_release}")
 
     # --- Apply LFO Modulations (LFO Speed, Depth, etc.) ---
@@ -648,8 +494,7 @@ def modify_vital_preset(vital_preset, midi_data, snapshot_method="1"):
         })
 
     # --- Ensure LFO Modulation Exists ---
-    if "modulations" not in modified_preset:
-        modified_preset["modulations"] = []
+    modified_preset.setdefault("modulations", [])
 
     # Add LFO 1 -> Wavetable Position Modulation (if there are enough notes)
     if len(notes) > 4:
@@ -662,9 +507,9 @@ def modify_vital_preset(vital_preset, midi_data, snapshot_method="1"):
         })
 
     # --- Replace `wave_data` in the preset with the generated frames ---
-    if "groups" in modified_preset and len(modified_preset["groups"]) > 0:
+    if "groups" in modified_preset and modified_preset["groups"]:
         group0 = modified_preset["groups"][0]
-        if "components" in group0 and len(group0["components"]) > 0:
+        if "components" in group0 and group0["components"]:
             component0 = group0["components"][0]
             if "keyframes" in component0:
                 keyframes = component0["keyframes"]
@@ -683,30 +528,69 @@ def modify_vital_preset(vital_preset, midi_data, snapshot_method="1"):
     return modified_preset, frame_data_list
 
 
-def save_vital_preset(vital_preset, output_path, frame_data_list=None):
+def get_preset_filename(midi_path):
+    """Extracts the base name from the MIDI file and ensures it has a .vital extension."""
+    base_name = os.path.splitext(os.path.basename(midi_path))[0]  # Remove .mid extension
+    return f"{base_name}.vital"  # Append .vital extension
+
+
+def save_vital_preset(vital_preset, midi_path, frame_data_list=None):
     """
-    Saves the modified Vital preset as uncompressed JSON.
-    If 'frame_data_list' is provided, it replaces the first 3 'wave_data' fields.
+    Saves the modified Vital preset as an uncompressed JSON file.
+    Uses the MIDI filename as the preset name.
     """
     try:
-        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        # Generate the output file path based on the MIDI filename
+        output_path = os.path.join(OUTPUT_DIR, get_preset_filename(midi_path)) 
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
+        # Ensure modulations exist in the preset
         if "modulations" not in vital_preset:
             vital_preset["modulations"] = []
 
+        # Convert preset to JSON
         json_data = json.dumps(vital_preset, indent=2)
 
-        # Replace wave data in JSON
+        # Replace wave data if applicable
         if frame_data_list and len(frame_data_list) == 3:
             json_data = replace_three_wavetables(json_data, frame_data_list)
         else:
             print("⚠️ Warning: No valid wave_data to replace, or not exactly 3 frames given.")
 
-        # Write updated preset to file
+        # Save as JSON file
         with open(output_path, "w") as f:
             f.write(json_data)
 
-        print(f"✅ Saved updated Vital preset to: {output_path}")
+        print(f"✅ Successfully saved Vital preset as JSON: {output_path}")
 
     except Exception as e:
         print(f"❌ Error saving Vital preset: {e}")
+
+
+def apply_macro_controls_to_preset(preset, cc_map):
+    """
+    Maps MIDI CCs 20-23 to Macro Controls 1-4 and assigns default modulations.
+    """
+    print("🔹 Applying Macro Controls to preset...")
+
+    for i in range(1, 5):  # Macro 1 to 4
+        macro_key = f"macro_control_{i}"
+        midi_cc = 19 + i  # CC 20 → Macro 1, CC 21 → Macro 2, etc.
+
+        # Assign default value, override with MIDI CC if present
+        preset[macro_key] = cc_map.get(midi_cc, 0.5)  # Default to 0.5
+
+    # Assign each Macro to at least one useful parameter
+    macro_modulations = [
+        {"source": "macro_control_1", "destination": "filter_1_cutoff", "amount": 0.8},
+        {"source": "macro_control_2", "destination": "distortion_drive", "amount": 0.6},
+        {"source": "macro_control_3", "destination": "reverb_dry_wet", "amount": 0.7},
+        {"source": "macro_control_4", "destination": "chorus_dry_wet", "amount": 0.5}
+    ]
+
+    if "modulations" not in preset:
+        preset["modulations"] = []
+
+    preset["modulations"].extend(macro_modulations)
+
+    print("✅ Macro Controls applied successfully!")

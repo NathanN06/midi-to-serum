@@ -11,16 +11,25 @@ def parse_midi(file_path):
         # Extract tempo
         tempo = midi_data.estimate_tempo()
 
-        # Extract notes with ENV parameters
+        # Extract notes with envelope parameters
         notes = []
-        prev_note_end = None
+        attack_times = []
+        decay_times = []
+        sustain_levels = []
+        release_times = []
 
         for instrument in midi_data.instruments:
             for i, note in enumerate(instrument.notes):
-                attack_time = 0 if i == 0 else note.start - instrument.notes[i - 1].start
-                decay_time = 0.1  # Placeholder, could be determined via MIDI CC
+                attack_time = 0.01 if i == 0 else max(0.01, note.start - instrument.notes[i - 1].end)
+                decay_time = 0.1  # Placeholder for future MIDI CC-based adjustments
                 sustain_level = note.velocity / 127.0
-                release_time = (note.end - note.start) * 0.3  # Rough estimate
+                release_time = max(0.05, (note.end - note.start) * 0.3)
+
+                # Store envelope values for averaging later
+                attack_times.append(attack_time)
+                decay_times.append(decay_time)
+                sustain_levels.append(sustain_level)
+                release_times.append(release_time)
 
                 notes.append({
                     "pitch": note.pitch,
@@ -37,7 +46,7 @@ def parse_midi(file_path):
         control_changes = [
             {
                 "controller": cc.number,
-                "value": cc.value,
+                "value": cc.value / 127.0,  # Normalize CC values to 0-1
                 "time": cc.time
             }
             for instrument in midi_data.instruments
@@ -54,21 +63,28 @@ def parse_midi(file_path):
             for pb in instrument.pitch_bends
         ]
 
-        print("\n🔍 Debug: Parsed MIDI Data")
-        print(f"Notes: {len(notes)}, CCs: {len(control_changes)}, Pitch Bends: {len(pitch_bends)}")
+        # Compute average ADSR for the preset (fallback values)
+        adsr = {
+            "attack": sum(attack_times) / len(attack_times) if attack_times else 0.01,
+            "decay": sum(decay_times) / len(decay_times) if decay_times else 0.1,
+            "sustain": sum(sustain_levels) / len(sustain_levels) if sustain_levels else 0.8,
+            "release": sum(release_times) / len(release_times) if release_times else 0.3
+        }
 
         return {
             "tempo": tempo,
             "notes": notes,
             "control_changes": control_changes,
-            "pitch_bends": pitch_bends
+            "pitch_bends": pitch_bends,
+            "adsr": adsr  # ✅ Include overall ADSR
         }
-    
+
     except Exception as e:
         print(f"❌ Error parsing MIDI file: {e}")
         return {
             "tempo": None,
             "notes": [],
             "control_changes": [],
-            "pitch_bends": []
+            "pitch_bends": [],
+            "adsr": {"attack": 0.01, "decay": 0.1, "sustain": 0.8, "release": 0.3}  # Default fallback
         }
