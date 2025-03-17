@@ -73,10 +73,18 @@ def load_default_vital_preset(default_preset_path):
         return None
 
 
-def generate_lfo_shape_from_cc(cc_data, num_points=16):
+def generate_lfo_shape_from_cc(cc_data, num_points=16, lfo_type="sine"):
     """
     Generates an LFO shape based on MIDI CC automation.
     Converts CC values into a set of time/value points in Vital's LFO JSON format.
+
+    Args:
+        cc_data (list): MIDI CC automation data.
+        num_points (int): Number of points to sample for LFO shape.
+        lfo_type (str): Type of LFO shape (e.g., "sine", "square", "saw").
+    
+    Returns:
+        dict: LFO shape in Vital JSON format.
     """
     if not cc_data:
         print("⚠️ No MIDI CC data found. Skipping LFO generation.")
@@ -85,22 +93,34 @@ def generate_lfo_shape_from_cc(cc_data, num_points=16):
     # Sort CCs by time
     cc_data = sorted(cc_data, key=lambda x: x["time"])
     times = np.array([cc["time"] for cc in cc_data])
-    values = np.array([cc["value"] / 127.0 for cc in cc_data])  # 0-1
+    values = np.array([cc["value"] / 127.0 for cc in cc_data])  # Normalize to [0, 1]
 
     # Create a time axis for interpolation (num_points long, from min time to max time)
     resampled_times = np.linspace(times[0], times[-1], num_points)
     resampled_values = np.interp(resampled_times, times, values)
+
+    # LFO waveforms customization
+    if lfo_type == "sine":
+        waveform = np.sin(resampled_times * 2 * np.pi)  # Sine wave
+    elif lfo_type == "square":
+        waveform = np.sign(np.sin(resampled_times * 2 * np.pi))  # Square wave
+    elif lfo_type == "saw":
+        waveform = 2 * (resampled_times % 1) - 1  # Saw wave
+    elif lfo_type == "triangle":
+        waveform = 2 * np.abs(2 * (resampled_times % 1) - 1) - 1  # Triangle wave
+    else:
+        waveform = np.sin(resampled_times * 2 * np.pi)  # Default to sine if no match
 
     # Combine times+values into the "points" array per Vital's LFO definition
     lfo_shape = {
         "name": "MIDI_CC_LFO",
         "num_points": num_points,
         "points": list(resampled_times) + list(resampled_values),  # [time1..timeN, val1..valN]
-        "powers": [0.0] * num_points,  # Linear interpolation
+        "powers": list(waveform),  # Applying the waveform as the power curve
         "smooth": True
     }
 
-    print(f"✅ Created LFO from MIDI CC data: {lfo_shape}")
+    print(f"✅ Created LFO with type {lfo_type} from MIDI CC data: {lfo_shape}")
     return lfo_shape
 
 
@@ -199,134 +219,192 @@ def add_lfos_to_preset(preset, cc_data, notes, lfo_target="filter_1_cutoff"):
     print(f"✅ LFO1 -> {lfo_target} at {lfo_rate:.2f}Hz applied.")
 
 
-def apply_dynamic_env1_from_midi(preset, midi_data):
+def apply_dynamic_env_to_preset(preset, midi_data):
     """
-    Sets Env1 ADSR based on average note length and velocity in midi_data.
-    If no notes, uses fallback values.
+    Dynamically adjusts Envelope 1, 2, and 3 based on MIDI note data.
+
+    - ENV1: **Amplitude (volume envelope)**
+    - ENV2: **Filter cutoff envelope**
+    - ENV3: **Oscillator shape/pitch envelope**
+    
+    Each envelope has different timing & sustain characteristics based on:
+      - Note length (short = pluck, long = pad)
+      - Note density (fast sequences = snappier envelopes)
+      - MIDI CC data (expression/mod wheel influence)
     """
+
+    if "settings" not in preset:
+        preset["settings"] = {}
 
     notes = midi_data.get("notes", [])
+    ccs = midi_data.get("control_changes", [])
+
     if not notes:
-        # Fallback if no notes
-        avg_length = 0.5
-        avg_vel = 80
+        print("⚠️ No MIDI notes detected. Using default envelopes.")
+        preset["settings"].update({
+            "env_1_attack":  DEFAULT_ADSR["attack"],
+            "env_1_decay":   DEFAULT_ADSR["decay"],
+            "env_1_sustain": DEFAULT_ADSR["sustain"],
+            "env_1_release": DEFAULT_ADSR["release"]
+        })
+        return
+
+    ### 🔹 Compute Average Note Properties ###
+    avg_note_length = sum(n["end"] - n["start"] for n in notes) / len(notes)
+    avg_velocity = sum(n["velocity"] for n in notes) / len(notes)
+    sustain_level = min(1.0, avg_velocity / 127.0)
+
+    ### 🔹 Determine Note Density (How Fast Notes are Played) ###
+    if len(notes) > 1:
+        time_gaps = [notes[i+1]["start"] - notes[i]["end"] for i in range(len(notes)-1)]
+        avg_gap = sum(time_gaps) / len(time_gaps)
     else:
-        # Average note length
-        total_length = sum(n["end"] - n["start"] for n in notes)
-        avg_length = total_length / len(notes)
-        # Average velocity
-        total_vel = sum(n["velocity"] for n in notes)
-        avg_vel = total_vel / len(notes)
+        avg_gap = avg_note_length  # Single note case
 
-    # Scale times from avg_length
-    attack_time   = max(0.01, 0.1 * avg_length)
-    decay_time    = max(0.05, 0.3 * avg_length)
-    release_time  = max(0.1, 0.5 * avg_length)
-    sustain_level = min(1.0, avg_vel / 127.0)
+    note_density_factor = max(0.2, min(1.0, 1.0 - (avg_gap / 2.0)))  # More notes = faster envelopes
 
-    # Clamp so they don’t get too large
-    attack_time   = min(attack_time, 2.0)
-    decay_time    = min(decay_time, 3.0)
-    release_time  = min(release_time, 5.0)
+    ### 🔹 Check for CC Influence (e.g., Expression, Mod Wheel) ###
+    expression_value = next((cc["value"] / 127.0 for cc in ccs if cc["controller"] == 11), None)
+    mod_wheel_value = next((cc["value"] / 127.0 for cc in ccs if cc["controller"] == 1), None)
 
-    # Power (curvature) examples
-    attack_power  = 0.0   # 0=linear, negative=exp, positive=log
-    decay_power   = -2.0
-    release_power = -2.0
+    def clamp(value, min_val, max_val):
+        """Ensures value stays within the min-max range."""
+        return max(min_val, min(value, max_val))
 
-    preset["env_1_attack"]        = attack_time
-    preset["env_1_attack_power"]  = attack_power
-    preset["env_1_decay"]         = decay_time
-    preset["env_1_decay_power"]   = decay_power
-    preset["env_1_sustain"]       = sustain_level
-    preset["env_1_release"]       = release_time
-    preset["env_1_release_power"] = release_power
-    preset["env_1_delay"]         = 0.0
-    preset["env_1_hold"]          = 0.0
+    ### ✅ Envelope 1: Amplitude Envelope (Volume) ###
+    env1_attack = clamp(avg_note_length ** 1.2 * note_density_factor, 0.3, 34)  # **Non-linear scaling**
+    env1_decay = clamp(avg_note_length * 0.5 * note_density_factor, 0, 32)   
+    env1_sustain = clamp(sustain_level * (1.0 - note_density_factor * 0.5), 0, 1)  # **Density-based scaling**
+    env1_release = clamp(avg_note_length * 0.8 * note_density_factor, 0, 32)
+    env1_delay = clamp(avg_gap * 0.5, 0, 4)  
+    env1_hold = clamp(avg_note_length * 1.5 * note_density_factor, 0.4, 1.0)  
 
-    print(f"✅ Env1 set dynamically from MIDI notes. "
-          f"(Attack={attack_time:.2f}s, Decay={decay_time:.2f}s, "
-          f"Sustain={sustain_level:.2f}, Release={release_time:.2f}s)")
+    preset["settings"].update({
+        "env_1_attack":  env1_attack,
+        "env_1_decay":   env1_decay,
+        "env_1_sustain": env1_sustain,
+        "env_1_release": env1_release,
+        "env_1_delay": env1_delay,
+        "env_1_hold": env1_hold,  
+    })
+    print(f"✅ ENV1 → A={env1_attack:.2f}s, D={env1_decay:.2f}s, S={env1_sustain:.2f}, R={env1_release:.2f}s, H={env1_hold:.2f}, Delay={env1_delay:.2f}")
+
+    ### ✅ Envelope 2: Filter Envelope ###
+    env2_attack = clamp(avg_note_length ** 1.1 * note_density_factor, 0.3, 34)  # **Slightly nonlinear**
+    env2_decay = clamp(avg_note_length * 0.7 * note_density_factor, 0, 32)  
+    env2_sustain = clamp(sustain_level * (1.0 - note_density_factor * 0.4), 0, 1)  
+    env2_release = clamp(avg_note_length * 1.2 * note_density_factor, 0, 32)
+    env2_delay = clamp(avg_gap * 0.4, 0, 4)  
+    env2_hold = clamp(avg_note_length * 1.2 * note_density_factor, 0.4, 1.0)  
+
+    if mod_wheel_value:
+        env2_sustain = clamp(env2_sustain * (0.7 + mod_wheel_value * 0.3), 0, 1)  
+
+    preset["settings"].update({
+        "env_2_attack":  env2_attack,
+        "env_2_decay":   env2_decay,
+        "env_2_sustain": env2_sustain,
+        "env_2_release": env2_release,
+        "env_2_delay": env2_delay,
+        "env_2_hold": env2_hold,  
+    })
+    print(f"✅ ENV2 → A={env2_attack:.2f}s, D={env2_decay:.2f}s, S={env2_sustain:.2f}, R={env2_release:.2f}s, H={env2_hold:.2f}, Delay={env2_delay:.2f}")
+
+    ### ✅ Envelope 3: Oscillator Morphing/Pitch ###
+    env3_attack = clamp(avg_note_length ** 1.15 * note_density_factor, 0.3, 34)  
+    env3_decay = clamp(avg_note_length * 0.6 * note_density_factor, 0, 32)  
+    env3_sustain = clamp(sustain_level * (1.0 - note_density_factor * 0.3), 0, 1)  
+    env3_release = clamp(avg_note_length * 1.5 * note_density_factor, 0, 32)
+    env3_delay = clamp(avg_gap * 0.3, 0, 4)  
+    env3_hold = clamp(avg_note_length * 1.8 * note_density_factor, 0.4, 1.0)  
+
+    preset["settings"].update({
+        "env_3_attack":  env3_attack,
+        "env_3_decay":   env3_decay,
+        "env_3_sustain": env3_sustain,
+        "env_3_release": env3_release,
+        "env_3_delay": env3_delay,
+        "env_3_hold": env3_hold,  
+    })
+    print(f"✅ ENV3 → A={env3_attack:.2f}s, D={env3_decay:.2f}s, S={env3_sustain:.2f}, R={env3_release:.2f}s, H={env3_hold:.2f}, Delay={env3_delay:.2f}")
+
+    print("✅ Envelope modulations added: ENV2 → Filter, ENV3 → Warp")
 
 
-def build_lfo_from_cc1(preset, midi_data, lfo_idx=1, one_shot=False):
+def build_lfo_from_cc(preset, midi_data, lfo_idx=1, destination="filter_1_cutoff", one_shot=False):
     """
-    Builds a multi-point LFO shape from CC1 (mod wheel) data.
-    If none found, uses a fallback. Then automatically modulates `filter_1_cutoff`.
-
-    :param preset:    The Vital preset dictionary.
-    :param midi_data: Parsed MIDI dict with "control_changes", "notes", etc.
-    :param lfo_idx:   Which LFO number to overwrite (1..8 typically).
-    :param one_shot:  If True, treat LFO as one-shot (acts like an envelope).
-                      You may need to set the actual one-shot key in Vital depending on version.
+    Builds an LFO shape from a MIDI CC source or generates a fallback LFO if no CC is provided.
+    
+    - Uses MIDI CC to shape LFOs dynamically.
+    - Ensures at least 16 points for smoother LFOs.
+    - Supports free-running and one-shot LFOs.
     """
-
-    # Gather all CC1 events
+    # Gather all CC data (CC1 = Mod Wheel by default)
     cc_events = [cc for cc in midi_data.get("control_changes", []) if cc["controller"] == 1]
+
     if not cc_events:
-        print("⚠️ No CC1 (mod wheel) data found. Using fallback LFO shape.")
-        # Basic triangle fallback
-        times  = [0.0, 0.5, 1.0]
-        values = [0.0, 1.0, 0.0]
+        print(f"⚠️ No CC1 data found. Generating default triangle LFO for {destination}.")
+        times_interp = np.linspace(0, 1, 16)  # Default time points
+        values_interp = np.abs(2 * (times_interp % 1) - 1)  # Default triangle wave
     else:
-        # Sort by time
+        # Sort CC events by time
         cc_events.sort(key=lambda x: x["time"])
-        times  = [cc["time"] for cc in cc_events]
+        times = [cc["time"] for cc in cc_events]
         values = [cc["value"] / 127.0 for cc in cc_events]
+
         # Normalize times to [0..1]
-        max_t = times[-1] if times[-1] != 0 else 1e-6
+        max_t = max(times) if max(times) > 0 else 1e-6
         times = [t / max_t for t in times]
 
-    # Flatten times + values into Vital’s "points" format
-    points = times + values
-    num_points = len(times)
-    powers = [0.0] * num_points  # Use 0 for linear segments
+        # Interpolate to get a higher resolution LFO
+        times_interp = np.linspace(0, 1, 16)  # 16 evenly spaced points
+        values_interp = np.interp(times_interp, times, values)
+
+    # Create the LFO shape
+    points = [val for pair in zip(times_interp, values_interp) for val in pair]  # [t1, v1, t2, v2, ...]
+    num_points = len(times_interp)
+    powers = [0.0] * num_points  # Linear interpolation
 
     # Ensure "lfos" array exists
-    if "lfos" not in preset:
-        preset["lfos"] = []
+    preset.setdefault("lfos", [])
 
-    # Make sure we have enough entries for LFO #lfo_idx
+    # Expand LFOs list if needed
     while len(preset["lfos"]) < lfo_idx:
         preset["lfos"].append({
             "name": f"LFO {len(preset['lfos'])+1}",
             "num_points": 2,
-            "points": [0.0, 1.0,  1.0, 0.0],
+            "points": [0.0, 1.0, 1.0, 0.0],
             "powers": [0.0, 0.0],
             "smooth": False
         })
 
     # Overwrite the chosen LFO
-    lfo_array_index = lfo_idx - 1
-    preset["lfos"][lfo_array_index] = {
-        "name": f"CC1_LFO{lfo_idx}",
+    preset["lfos"][lfo_idx - 1] = {
+        "name": f"Custom_LFO{lfo_idx}",
         "num_points": num_points,
         "points": points,
         "powers": powers,
-        "smooth": False
+        "smooth": True  # Smooth LFO
     }
 
-    # Set top-level LFO parameters
-    prefix = f"lfo_{lfo_idx}"
-    preset[f"{prefix}_frequency"] = 1.0
-    preset[f"{prefix}_sync"]      = 0.0
-    preset[f"{prefix}_tempo"]     = 4.0
+    # Set LFO frequency and sync
+    preset[f"lfo_{lfo_idx}_frequency"] = 2.0  # Default speed
+    preset[f"lfo_{lfo_idx}_sync"] = 0.0  # Free running mode
+    preset[f"lfo_{lfo_idx}_tempo"] = 4.0  # Tempo-synced
 
-    # If you know Vital’s key for one-shot, set it here:
-    # Example guess:
-    # if one_shot:
-    #     preset["lfo_1_trigger_mode"] = 1  # or whichever key your Vital version uses
+    # Set One-Shot Mode if enabled
+    if one_shot:
+        preset[f"lfo_{lfo_idx}_one_shot"] = 1.0  # Enable one-shot behavior
 
-    # Add a modulation to filter_1_cutoff
-    if "modulations" not in preset:
-        preset["modulations"] = []
+    # Add modulation to the chosen destination
+    preset.setdefault("modulations", [])
     preset["modulations"].append({
         "source": f"lfo_{lfo_idx}",
-        "destination": "filter_1_cutoff",
-        "amount": 0.5
+        "destination": destination,
+        "amount": 0.6  # Amount of modulation
     })
 
-    print(f"✅ Built LFO{lfo_idx} from CC1 data (points={num_points}). one_shot={one_shot} -> filter_1_cutoff.")
+    print(f"✅ LFO{lfo_idx} -> {destination} applied (one_shot={one_shot}).")
 
 
 def set_vital_parameter(preset, param_name, value):
@@ -655,8 +733,16 @@ def modify_vital_preset(vital_preset, midi_file, snapshot_method="1"):
     # 5) Pitch bend => set final pitch_wheel
     modified["pitch_wheel"] = pitch_bends[-1]["pitch"] / 8192.0 if pitch_bends else 0.0
 
-    # 6) Dynamic Env1 from MIDI
-    apply_dynamic_env1_from_midi(modified, midi_data)
+    # 6) Apply **Custom Envelopes** from MIDI
+    apply_dynamic_env_to_preset(modified, midi_data)
+
+    # ✅ Debugging: Print Envelope Values to Confirm They Are Set
+    logging.info("\n🔍 **Final Envelope Values in Modified Preset:**")
+    for env in ["env_1", "env_2", "env_3"]:
+        logging.info(f"  {env}_attack: {modified.get(f'{env}_attack', 'N/A')}")
+        logging.info(f"  {env}_decay: {modified.get(f'{env}_decay', 'N/A')}")
+        logging.info(f"  {env}_sustain: {modified.get(f'{env}_sustain', 'N/A')}")
+        logging.info(f"  {env}_release: {modified.get(f'{env}_release', 'N/A')}")
 
     # 7) Generate 3 distinct wavetable frames
     frame_data = generate_three_frame_wavetables(midi_data, num_frames=3, frame_size=2048)
@@ -668,7 +754,6 @@ def modify_vital_preset(vital_preset, midi_file, snapshot_method="1"):
     modified["settings"]["osc_3_on"] = 1.0 if num_notes > 2 else 0.0
 
     ### ✅ Enable SMP Based on MIDI Data ###
-    # If CC31 (or another sample-related CC) exists and is > 0.1, enable SMP
     if 31 in cc_map and cc_map[31] > 0.1:
         modified["settings"]["sample_on"] = 1.0
         logging.info("✅ Enabling SMP (Sample Oscillator) due to MIDI CC31.")
@@ -685,18 +770,35 @@ def modify_vital_preset(vital_preset, midi_file, snapshot_method="1"):
 
     ### ✅ Enable Effects Based on CC Messages (with Dynamic Amount) ###
     effects_mapping = {
-        91: "reverb_dry_wet",     # Reverb
-        93: "chorus_dry_wet",     # Chorus
-        94: "delay_dry_wet",      # Delay
-        95: "phaser_dry_wet",     # Phaser
-        117: "compressor_amount", # Compressor
-        116: "distortion_drive",  # Distortion
-        119: "flanger_dry_wet",   # Flanger
+        91: "reverb_dry_wet",
+        93: "chorus_dry_wet",
+        94: "delay_dry_wet",
+        95: "phaser_dry_wet",
+        117: "compressor_amount",
+        116: "distortion_drive",
+        119: "flanger_dry_wet",
     }
-
     for cc_num, setting in effects_mapping.items():
         if cc_num in cc_map and cc_map[cc_num] > 0.1:
-            modified["settings"][setting] = cc_map[cc_num]  # ✅ Uses CC value as effect strength
+            modified["settings"][setting] = cc_map[cc_num]
+
+    ### ✅ Apply **LFO Modulations** ###
+    build_lfo_from_cc(modified, midi_data, lfo_idx=1, destination="filter_1_cutoff")  # LFO1 → Filter Cutoff
+    build_lfo_from_cc(modified, midi_data, lfo_idx=2, destination="osc_1_pitch", one_shot=True)  # LFO2 → Pitch (One-Shot)
+    build_lfo_from_cc(modified, midi_data, lfo_idx=3, destination="volume")  # LFO3 → Volume Tremolo
+    build_lfo_from_cc(modified, midi_data, lfo_idx=4, destination="filter_2_resonance")  # LFO4 → Filter Resonance
+
+    ### ✅ Apply **Envelope Modulations** ###
+    modified["modulations"].append({
+        "source": "env_2",
+        "destination": "filter_1_cutoff",
+        "amount": 0.8
+    })
+    modified["modulations"].append({
+        "source": "env_3",
+        "destination": "osc_1_warp",
+        "amount": 0.6
+    })
 
     # 9) Apply wavetables to the preset & rename them
     if "groups" in modified and modified["groups"]:
@@ -708,14 +810,11 @@ def modify_vital_preset(vital_preset, midi_file, snapshot_method="1"):
                 while len(keyframes) < 3:
                     keyframes.append({"position": 0.0, "wave_data": "", "wave_source": {"type": "sample"}})
 
-                # ✅ Define new names for the wavetables
                 wavetable_names = ["Attack Phase", "Harmonic Blend", "Final Release"]
-
                 for i in range(3):
                     keyframes[i]["wave_data"] = frame_data[i]
                     keyframes[i]["wave_source"] = {"type": "sample"}
 
-                # ✅ Rename the **entire wavetable group/component**
                 component0["name"] = "Generated Wavetable"
 
     # ✅ Update the **preset_name** field
