@@ -8,6 +8,7 @@ import pretty_midi
 import re
 import numpy as np
 import os
+import logging
 
 # Local imports
 from midi_analysis import estimate_frame_count
@@ -20,46 +21,55 @@ from config import (
     OUTPUT_DIR
 )
 
+
 def load_default_vital_preset(default_preset_path):
     """
-    Loads the default Vital preset (handling both compressed and uncompressed JSON)
+    Loads a default Vital preset, handling both compressed and uncompressed JSON,
     and ensures a structure with 3 keyframes for Oscillator 1.
+    
+    Args:
+        default_preset_path (str): Path to the default Vital preset file.
+
+    Returns:
+        dict: The parsed preset data if successful, None otherwise.
     """
     try:
         with open(default_preset_path, "rb") as f:
             file_data = f.read()
 
-        # Try zlib decompression; if it fails, assume it's plain JSON
+        # Try decompressing; fallback to plain JSON if it's not compressed
         try:
             json_data = zlib.decompress(file_data).decode()
         except zlib.error:
             json_data = file_data.decode()
 
-        preset = json.loads(json_data)
-        
+        # Parse JSON safely
+        try:
+            preset = json.loads(json_data)
+        except json.JSONDecodeError as e:
+            logging.error(f"❌ Error decoding Vital preset JSON: {e}")
+            return None
+
         # Ensure we have at least 3 keyframes in the first oscillator
-        if "groups" in preset and len(preset["groups"]) > 0:
+        if "groups" in preset and preset["groups"]:
             group = preset["groups"][0]
-            if "components" in group and len(group["components"]) > 0:
+            if "components" in group and group["components"]:
                 component = group["components"][0]
-                if "keyframes" in component and len(component["keyframes"]) != 3:
-                    print("Warning: Adjusting preset to use 3 keyframes for Oscillator 1")
+                if "keyframes" in component:
+                    keyframes = component["keyframes"]
+                    if len(keyframes) < 3:
+                        logging.warning("⚠️ Adjusting preset to ensure 3 keyframes for Oscillator 1.")
 
-                    # Placeholder wave data (shortened here for brevity)
-                    default_wave_data = (
-                        "ABAAugAYwLoAFCC7ABxguwASkLsAFrC7ABrQuwAe8LsAEQi8ABMYvAAVKLwAFzi8ABlIvAAbWLwAHWi8AB94vIAQhLyAEYy8gBKUvIATnLyAFKS8gBWsvIAWtLyAF7y8gBjEvIAZzLyAGtS8gBvcvIAc5LyAHey8gB70vIAf/LxAEAK9wBAGvUARCr3AEQ69QBISvcASFr1AExq9wBMevUAUIr3AFCa9QBUqvcAVLr1AFjK9wBY2vUAXOr3AFz69QBhCvcAYRr1AGUq9wBlOvUAaUr3AGla9QBtavcAbXr1AHGK9wBxmvUAdar3AHW69QB5yvcAedr1AH3q9wB9+vSAQgb1gEIO9oBCFveAQh70gEYm9YBGLvaARjb3gEY+9IBKRvWASk72gEpW94BKXvSATmb1gE5u9oBOdveATn70gFKG9YBSjvaAUpb3gFKe9IBWpvWAVq72gFa294BWvvSAWsb1gFrO9oBa1veAWt70gF7m9YBe7vaAXvb3gF7+9IBjBvWAYw72gGMW94BjHvSAZyb1gGcu9oBnNveAZz70gGtG9YBrTvaAa1b3gGte9IBvZvWAb272gG9294BvfvSAc4b1gHOO9oBzlveAc570gHem9YB3rvaAd7b3gHe+9IB7xvWAe872gHvW94B73vSAf+b1gH/u9oB/9veAf/70QkAC+MJABvlCQAr5wkAO+kJAEvrCQBb7QkAa+8JAHvhCRCL4wkQm+UJEKvnCRC76QkQy+sJENvtCRDr7wkQ++EJIQvjCSEb5QkhK+cJITvpCSFL6wkhW+0JIWvvCSF74Qkxi+MJMZvlCTGr5wkxu+kJMcvrCTHb7Qkx6+8JMfvhCUIL4wlCG+UJQivnCUI76QlCS+sJQlvtCUJr7wlCe+EJUovjCVKb5QlSq+cJUrvpCVLL6wlS2+0JUuvvCVL74QljC+MJYxvlCWMr5wljO+kJY0vrCWNb7Qlja+8JY3vhCXOL4wlzm+UJc6vnCXO76Qlzy+sJc9vtCXPr7wlz++EJhAvjCYQb5QmEK+cJhDvpCYRL6wmEW+0JhGvvCYR74QmUi+MJlJvlCZSr5wmUu+kJlMvrCZTb7QmU6+8JlPvhCaUL4wmlG+UJpSvnCaU76QmlS+sJpVvtCaVr7wmle+EJtYvjCbWb5Qm1q+cJtbvpCbXL6wm12+0JtevvCbX74QnGC+MJxhvlCcYr5wnGO+kJxkvrCcZb7QnGa+8JxnvhCdaL4wnWm+UJ1qvnCda76QnWy+sJ1tvtCdbr7wnW++EJ5wvjCecb5QnnK+cJ5zvpCedL6wnnW+0J52vvCed74Qn3i+MJ95vlCfer5wn3u+kJ98vrCffb7Qn36+8J9/vghQgL4c0IC+LFCBvjzQgb5MUIK+XNCCvmxQg7580IO+jFCEvpzQhL6sUIW+vNCFvsxQhr7c0Ia+7FCHvvzQh74MUYi+HNGIvixRib480Ym+TFGKvlzRir5sUYu+fNGLvoxRjL6c0Yy+rFGNvrzRjb7MUY6+3NGOvuxRj7780Y++DFKQvhzSkL4sUpG+PNKRvkxSkr5c0pK+bFKTvnzSk76MUpS+nNKUvqxSlb680pW+zFKWvtzSlr7sUpe+/NKXvgxTmL4c05i+LFOZvjzTmb5MU5q+XNOavmxTm75805u+jFOcvpzTnL6sU52+vNOdvsxTnr7c056+7FOfvvzTn74MVKC+HNSgvixUob481KG+TFSivlzUor5sVKO+fNSjvoxUpL6c1KS+rFSlvrzUpb7MVKa+3NSmvuxUp7781Ke+DFWovhzVqL4sVam+PNWpvkxVqr5c1aq+bFWrvnzVq76MVay+nNWsvqxVrb681a2+zFWuvtzVrr7sVa++/NWvvgxWsL4c1rC+LFaxvjzWsb5MVrK+XNayvmxWs7581rO+jFa0vpzWtL6sVrW+vNa1vsxWtr7c1ra+7Fa3vvzWt74MV7i+HNe4vixXub4817m+TFe6vlzXur5sV7u+fNe7voxXvL6c17y+rFe9vrzXvb7MV76+3Ne+vuxXv77817++DFjAvhzYwL4sWMG+PNjBvkxYwr5c2MK+bFjDvnzYw76MWMS+nNjEvqxYxb682MW+zFjGvtzYxr7sWMe+/NjHvgxZyL4c2ci+LFnJvjzZyb5MWcq+XNnKvmxZy7582cu+jFnMvpzZzL6sWc2+vNnNvsxZzr7c2c6+7FnPvvzZz74MWtC+HNrQvixa0b482tG+TFrSvlza0r5sWtO+fNrTvoxa1L6c2tS+rFrVvrza1b7MWta+3NrWvuxa17782te+DFvYvhzb2L4sW9m+PNvZvkxb2r5c29q+bFvbvnzb276MW9y+nNvcvqxb3b68292+zFvevtzb3r7sW9++/Nvfvgxc4L4c3OC+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znUuP8Y1Lj++9S0/trUtP651LT+mNS0/nvUsP5a1LD+OdSw/hjUsP371Kz92tSs/bnUrP2Y1Kz9e9So/VrUqP051Kj9GNSo/PvUpPza1KT8udSk/JjUpPx71KD8WtSg/DnUoPwY1KD/+9Cc/9rQnP+50Jz/mNCc/3vQmP9a0Jj/OdCY/xjQmP770JT+2tCU/rnQlP6Y0JT+e9CQ/lrQkP450JD+GNCQ/fvQjP3a0Iz9udCM/ZjQjP170Ij9WtCI/TnQiP0Y0Ij8+9CE/NrQhPy50IT8mNCE/HvQgPxa0ID8OdCA/BjQgP/7zHz/2sx8/7nMfP+YzHz/e8x4/1rMeP85zHj/GMx4/vvMdP7azHT+ucx0/pjMdP57zHD+Wsxw/jnMcP4YzHD9+8xs/drMbP25zGz9mMxs/XvMaP1azGj9Ocxo/RjMaPz7zGT82sxk/LnMZPyYzGT8e8xg/FrMYPw5zGD8GMxg//vIXP/ayFz/uchc/5jIXP97yFj/WshY/znIWP8YyFj++8hU/trIVP65yFT+mMhU/nvIUP5ayFD+OchQ/hjIUP37yEz92shM/bnITP2YyEz9e8hI/VrISP05yEj9GMhI/PvIRPzayET8uchE/JjIRPx7yED8WshA/DnIQPwYyED/+8Q8/9rEPP+5xDz/mMQ8/3vEOP9axDj/OcQ4/xjEOP77xDT+2sQ0/rnENP6YxDT+e8Qw/lrEMP45xDD+GMQw/fvELP3axCz9ucQs/ZjELP17xCj9WsQo/TnEKP0YxCj8+8Qk/NrEJPy5xCT8mMQk/HvEIPxaxCD8OcQg/BjEIP/7wBz/2sAc/7nAHP+YwBz/e8AY/1rAGP85wBj/GMAY/vvAFP7awBT+ucAU/pjAFP57wBD+WsAQ/jnAEP4YwBD9+8AM/drADP25wAz9mMAM/XvACP1awAj9OcAI/RjACPz7wAT82sAE/LnABPyYwAT8e8AA/FrAAPw5wAD8GMAA//N//Puxf/z7c3/4+zF/+Przf/T6sX/0+nN/8Poxf/D583/s+bF/7Plzf+j5MX/o+PN/5Pixf+T4c3/g+DF/4Pvze9z7sXvc+3N72Psxe9j683vU+rF71Ppze9D6MXvQ+fN7zPmxe8z5c3vI+TF7yPjze8T4sXvE+HN7wPgxe8D783e8+7F3vPtzd7j7MXe4+vN3tPqxd7T6c3ew+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"
-                        # truncated base64 data
-                    )
+                        # Placeholder base64 wave data (truncated for brevity)
+                        default_wave_data = (
+                            "ABAAugAYwLoAFCC7ABxguwASkLsAFrC7ABrQuwAe8LsAEQi8ABMYvAAVKLwAFzi8ABlIvAAbWLwAHWi8AB94vIAQhLyAEYy8gBKUvIATnLyAFKS8gBWsvIAWtLyAF7y8gBjEvIAZzLyAGtS8gBvcvIAc5LyAHey8gB70vIAf/LxAEAK9wBAGvUARCr3AEQ69QBISvcASFr1AExq9wBMevUAUIr3AFCa9QBUqvcAVLr1AFjK9wBY2vUAXOr3AFz69QBhCvcAYRr1AGUq9wBlOvUAaUr3AGla9QBtavcAbXr1AHGK9wBxmvUAdar3AHW69QB5yvcAedr1AH3q9wB9+vSAQgb1gEIO9oBCFveAQh70gEYm9YBGLvaARjb3gEY+9IBKRvWASk72gEpW94BKXvSATmb1gE5u9oBOdveATn70gFKG9YBSjvaAUpb3gFKe9IBWpvWAVq72gFa294BWvvSAWsb1gFrO9oBa1veAWt70gF7m9YBe7vaAXvb3gF7+9IBjBvWAYw72gGMW94BjHvSAZyb1gGcu9oBnNveAZz70gGtG9YBrTvaAa1b3gGte9IBvZvWAb272gG9294BvfvSAc4b1gHOO9oBzlveAc570gHem9YB3rvaAd7b3gHe+9IB7xvWAe872gHvW94B73vSAf+b1gH/u9oB/9veAf/70QkAC+MJABvlCQAr5wkAO+kJAEvrCQBb7QkAa+8JAHvhCRCL4wkQm+UJEKvnCRC76QkQy+sJENvtCRDr7wkQ++EJIQvjCSEb5QkhK+cJITvpCSFL6wkhW+0JIWvvCSF74Qkxi+MJMZvlCTGr5wkxu+kJMcvrCTHb7Qkx6+8JMfvhCUIL4wlCG+UJQivnCUI76QlCS+sJQlvtCUJr7wlCe+EJUovjCVKb5QlSq+cJUrvpCVLL6wlS2+0JUuvvCVL74QljC+MJYxvlCWMr5wljO+kJY0vrCWNb7Qlja+8JY3vhCXOL4wlzm+UJc6vnCXO76Qlzy+sJc9vtCXPr7wlz++EJhAvjCYQb5QmEK+cJhDvpCYRL6wmEW+0JhGvvCYR74QmUi+MJlJvlCZSr5wmUu+kJlMvrCZTb7QmU6+8JlPvhCaUL4wmlG+UJpSvnCaU76QmlS+sJpVvtCaVr7wmle+EJtYvjCbWb5Qm1q+cJtbvpCbXL6wm12+0JtevvCbX74QnGC+MJxhvlCcYr5wnGO+kJxkvrCcZb7QnGa+8JxnvhCdaL4wnWm+UJ1qvnCda76QnWy+sJ1tvtCdbr7wnW++EJ5wvjCecb5QnnK+cJ5zvpCedL6wnnW+0J52vvCed74Qn3i+MJ95vlCfer5wn3u+kJ98vrCffb7Qn36+8J9/vghQgL4c0IC+LFCBvjzQgb5MUIK+XNCCvmxQg7580IO+jFCEvpzQhL6sUIW+vNCFvsxQhr7c0Ia+7FCHvvzQh74MUYi+HNGIvixRib480Ym+TFGKvlzRir5sUYu+fNGLvoxRjL6c0Yy+rFGNvrzRjb7MUY6+3NGOvuxRj7780Y++DFKQvhzSkL4sUpG+PNKRvkxSkr5c0pK+bFKTvnzSk76MUpS+nNKUvqxSlb680pW+zFKWvtzSlr7sUpe+/NKXvgxTmL4c05i+LFOZvjzTmb5MU5q+XNOavmxTm75805u+jFOcvpzTnL6sU52+vNOdvsxTnr7c056+7FOfvvzTn74MXei+HN3ovixd6b483em+TF3qvlzd6r5sXeu+fN3rvoxd7L6c3ey+rF3tvrzd7b7MXe6+3N3uvuxd77783e++DF7wvhze8L4sXvG+PN7xvkxe8r5c3vK+bF7zvnze876MXvS+nN70vqxe9b683vW+zF72vtze9r7sXve+/N73vgxf+L4c3/i+LF/5vjzf+b5MX/q+XN/6vmxf+7583/u+jF/8vpzf/L6sX/2+vN/9vsxf/r7c3/6+7F//vvzf/74"
+                        )
+                        component["keyframes"] = [{"position": i / 2.0, "wave_data": default_wave_data} for i in range(3)]
 
-                    component["keyframes"] = [
-                        {"position": 0.0, "wave_data": default_wave_data},
-                        {"position": 0.5, "wave_data": default_wave_data},
-                        {"position": 1.0, "wave_data": default_wave_data}
-                    ]
         return preset
 
-    except Exception as e:
-        print(f"❌ Error loading default Vital preset: {e}")
+    except (OSError, json.JSONDecodeError) as e:
+        logging.error(f"❌ Error loading default Vital preset: {e}")
         return None
 
 
@@ -608,20 +618,20 @@ def modify_vital_preset(vital_preset, midi_file, snapshot_method="1"):
     High-level function that modifies a Vital preset with MIDI data
     (notes, CCs, pitch bends, etc.) and returns the updated preset + wave frames.
     """
-    print(f"🔍 Debug: Received midi_file of type {type(midi_file)}")
+    logging.info(f"🔍 Debug: Received midi_file of type {type(midi_file)}")
 
     # 1) Parse MIDI data if midi_file is a string path; otherwise assume it's a dict
     try:
         if isinstance(midi_file, dict):
-            print("⚠️ Using existing parsed MIDI data instead of a file path.")
+            logging.warning("⚠️ Using existing parsed MIDI data instead of a file path.")
             midi_data = midi_file
         elif isinstance(midi_file, str):
-            print(f"📂 Parsing MIDI file: {midi_file}")
+            logging.info(f"📂 Parsing MIDI file: {midi_file}")
             midi_data = parse_midi(midi_file)
         else:
             raise ValueError(f"Invalid type for midi_file: {type(midi_file)}")
     except Exception as e:
-        print(f"❌ Error parsing MIDI: {e}")
+        logging.error(f"❌ Error parsing MIDI: {e}")
         midi_data = {"notes": [], "control_changes": [], "pitch_bends": []}
 
     # 2) Copy the preset so we don't mutate the original
@@ -631,6 +641,9 @@ def modify_vital_preset(vital_preset, midi_file, snapshot_method="1"):
     notes = midi_data.get("notes", [])
     ccs = midi_data.get("control_changes", [])
     pitch_bends = midi_data.get("pitch_bends", [])
+
+    # Ensure "settings" exists in the preset
+    modified.setdefault("settings", {})
 
     # 3) Snapshot method => set basic osc1 pitch/level
     update_settings(modified, notes, snapshot_method)
@@ -648,48 +661,42 @@ def modify_vital_preset(vital_preset, midi_file, snapshot_method="1"):
     # 7) Generate 3 distinct wavetable frames
     frame_data = generate_three_frame_wavetables(midi_data, num_frames=3, frame_size=2048)
 
-    # 8) Ensure "settings" exists in the preset
-    modified.setdefault("settings", {})
+    ### ✅ Enable Oscillators Based on MIDI Notes ###
+    num_notes = len(notes)
+    modified["settings"]["osc_1_on"] = 1.0 if num_notes > 0 else 0.0
+    modified["settings"]["osc_2_on"] = 1.0 if num_notes > 1 else 0.0
+    modified["settings"]["osc_3_on"] = 1.0 if num_notes > 2 else 0.0
 
-    ### ✅ Conditionally Enable Oscillators ###
-    if any(n["velocity"] > 0 for n in notes):
-        modified["settings"]["osc_1_on"] = 1.0  
+    ### ✅ Enable SMP Based on MIDI Data ###
+    # If CC31 (or another sample-related CC) exists and is > 0.1, enable SMP
+    if 31 in cc_map and cc_map[31] > 0.1:
+        modified["settings"]["sample_on"] = 1.0
+        logging.info("✅ Enabling SMP (Sample Oscillator) due to MIDI CC31.")
 
-    if len(notes) > 1:
-        modified["settings"]["osc_2_on"] = 1.0  
-
-    if len(notes) > 2:
-        modified["settings"]["osc_3_on"] = 1.0  
-
-    if "sample" in midi_data:
-        modified["settings"]["sample_on"] = 1.0  
-
-    ### ✅ Conditionally Enable Filters ###
-    if any(cc["controller"] in [74, 102] for cc in ccs):
-        modified["settings"]["filter_1_on"] = 1.0  
-
-    if any(cc["controller"] in [103, 104] for cc in ccs):
-        modified["settings"]["filter_2_on"] = 1.0  
-
-    if any(cc["controller"] in [75, 107] for cc in ccs):
-        modified["settings"]["filter_fx_on"] = 1.0  
-
-    ### ✅ Conditionally Enable Effects ###
-    effects_mapping = {
-        91: "reverb_on",
-        93: "chorus_on",
-        94: "delay_on",
-        95: "phaser_on",
-        117: "compressor_on",
-        116: "distortion_on",
-        119: "flanger_on",
+    ### ✅ Enable Filters Based on CC Messages ###
+    filter_mappings = {
+        74: "filter_1_on", 102: "filter_1_on",
+        103: "filter_2_on", 104: "filter_2_on",
+        75: "filter_fx_on", 107: "filter_fx_on"
     }
+    for cc in ccs:
+        if cc["controller"] in filter_mappings:
+            modified["settings"][filter_mappings[cc["controller"]]] = 1.0
+
+    ### ✅ Enable Effects Based on CC Messages (with Dynamic Amount) ###
+    effects_mapping = {
+        91: "reverb_dry_wet",     # Reverb
+        93: "chorus_dry_wet",     # Chorus
+        94: "delay_dry_wet",      # Delay
+        95: "phaser_dry_wet",     # Phaser
+        117: "compressor_amount", # Compressor
+        116: "distortion_drive",  # Distortion
+        119: "flanger_dry_wet",   # Flanger
+    }
+
     for cc_num, setting in effects_mapping.items():
         if cc_num in cc_map and cc_map[cc_num] > 0.1:
-            modified["settings"][setting] = 1.0  
-
-    if any(cc["controller"] in [35, 36, 37, 38, 39, 40] for cc in ccs):
-        modified["settings"]["eq_on"] = 1.0  
+            modified["settings"][setting] = cc_map[cc_num]  # ✅ Uses CC value as effect strength
 
     # 9) Apply wavetables to the preset & rename them
     if "groups" in modified and modified["groups"]:
@@ -731,7 +738,7 @@ def modify_vital_preset(vital_preset, midi_file, snapshot_method="1"):
 
     replace_init_names(modified, ["Attack Phase", "Harmonic Blend", "Final Release"])
 
-    print("✅ Finished applying wavetables, envelopes, and LFOs to the preset.")
+    logging.info("✅ Finished applying wavetables, envelopes, and LFOs to the preset.")
     return modified, frame_data
 
 
@@ -743,57 +750,52 @@ def get_preset_filename(midi_path):
     return f"{base_name}.vital"
 
 
-def replace_three_wavetables(json_data, frame_data_list):
-    """
-    Replaces the first 3 'wave_data' fields in the Vital preset JSON
-    with three new Base64-encoded waveforms from 'frame_data_list'.
-    """
-    pattern = r'"wave_data"\s*:\s*"[^"]*"'
-    matches = list(re.finditer(pattern, json_data))
-
-    if len(matches) < 3:
-        print(f"⚠️ Warning: Found only {len(matches)} 'wave_data' entries, expected >= 3.")
-        count_to_replace = min(len(matches), 3)
-    else:
-        count_to_replace = 3
-
-    result = json_data
-    for i in range(count_to_replace):
-        start_idx, end_idx = matches[i].span()
-        replacement = f'"wave_data": "{frame_data_list[i]}"'
-        result = result[:start_idx] + replacement + result[end_idx:]
-
-    print(f"✅ Replaced wave_data in {count_to_replace} place(s).")
-    return result
-
-
 def save_vital_preset(vital_preset, midi_path, frame_data_list=None):
     """
     Saves the modified Vital preset as an uncompressed JSON file
-    named after the MIDI file (but with .vital extension).
+    named after the MIDI file (but with a .vital extension).
+    
+    Args:
+        vital_preset (dict): The modified Vital preset data.
+        midi_path (str): The path to the original MIDI file.
+        frame_data_list (list): Optional list of three wavetables (base64 strings).
+    
+    Returns:
+        str: The output file path if successful, None otherwise.
     """
     try:
+        # Generate the output path based on MIDI file name
         output_path = os.path.join(OUTPUT_DIR, get_preset_filename(midi_path))
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-        if "modulations" not in vital_preset:
-            vital_preset["modulations"] = []
+        # Ensure "modulations" key exists
+        vital_preset.setdefault("modulations", [])
 
+        # Convert the preset to JSON format
         json_data = json.dumps(vital_preset, indent=2)
 
-        # Optionally replace wave_data if exactly 3 frames are given
-        if frame_data_list and len(frame_data_list) == 3:
+        # If valid wavetables are provided, replace them
+        if isinstance(frame_data_list, list) and len(frame_data_list) == 3:
             json_data = replace_three_wavetables(json_data, frame_data_list)
+            logging.info("✅ Replaced wavetables in the preset.")
         else:
-            print("⚠️ Warning: No valid wave_data to replace or not exactly 3 frames.")
+            logging.warning("⚠️ No valid wave_data provided or not exactly 3 frames.")
 
-        with open(output_path, "w") as f:
+        # Write the preset to file
+        with open(output_path, "w", encoding="utf-8") as f:
             f.write(json_data)
 
-        print(f"✅ Successfully saved Vital preset as JSON: {output_path}")
+        logging.info(f"✅ Successfully saved Vital preset as JSON: {output_path}")
+        return output_path  # Return the path for reference
 
+    except OSError as e:
+        logging.error(f"❌ File error when saving Vital preset: {e}")
+    except json.JSONDecodeError as e:
+        logging.error(f"❌ JSON encoding error: {e}")
     except Exception as e:
-        print(f"❌ Error saving Vital preset: {e}")
+        logging.error(f"❌ Unexpected error in save_vital_preset: {e}")
+
+    return None
 
 
 def apply_macro_controls_to_preset(preset, cc_map):
