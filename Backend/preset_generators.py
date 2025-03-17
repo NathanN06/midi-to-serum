@@ -5,11 +5,13 @@ import struct
 import os
 from config import MIDI_TO_VITAL_MAP
 
+##########################################
+# (COMMENTED) Diva/Hive Preset Generation
+# Uncomment if/when you want to use Diva/Hive
+##########################################
+"""
 def generate_diva_preset(mapped_params, output_path):
-    """
-    Generate a u-he Diva/Hive preset in a simple text format.
-    This example writes key=value pairs.
-    """
+    # Generates a Diva/Hive preset in a simple text-based key=value format.
     lines = []
     lines.append("PresetName=Converted Preset")
     for key, value in mapped_params.items():
@@ -18,81 +20,72 @@ def generate_diva_preset(mapped_params, output_path):
     with open(output_path, 'w') as f:
         f.write("\n".join(lines))
     print(f"Diva/Hive preset saved to {output_path}")
+"""
 
-
+##########################################
+# (COMMENTED) Serum-like FXP Preset Generation
+# Uncomment if/when you want to use Serum
+##########################################
+"""
 def generate_fxp(serum_parameters, output_path):
-    """
-    Generates a minimally "Serum-like" .fxp preset header.
-    NOTE: The param_data here is NOT real Serum patch data.
-    Serum will likely ignore or fail to load these presets.
-    """
+    # Generates a minimal 'Serum-like' .fxp file. 
+    # NOTE: Not a real Serum patch. Serum may fail to load.
+
     try:
-        # Ensure the output directory exists
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-        # Typical Steinberg chunk-based FXP header for Serum (VST2):
-        chunk_magic = b'CcnK'  # Standard Steinberg header "CcnK"
-        fx_magic    = b'FPCh'  # Serum's chunk identifier for .fxp
-        version     = 1        # Format version (often 1)
-        plugin_id   = b'XfsX'  # Serum's VST2 plugin ID
-        fxp_type    = 1        # 1 = Single preset, 2 = Bank
+        chunk_magic = b'CcnK'
+        fx_magic    = b'FPCh'
+        version     = 1
+        plugin_id   = b'XfsX'
+        fxp_type    = 1
 
-        # Preset name (Serum often uses up to 28 ASCII chars for .fxp)
         preset_name = "MIDI Preset"
         preset_name_bytes = preset_name.encode('ascii').ljust(28, b'\x00')
 
-        # ----------------------------------------------------------------
-        # WARNING: The code below just packs an array of floats. 
-        # Serum does NOT store patch data as a simple float array.
-        # It's a proprietary chunk with wavetables, LFOs, filter data, etc.
-        # ----------------------------------------------------------------
-
-        # For demonstration, let's assume you want up to 288 "parameters."
         num_params = 288
-        # Fill them from your serum_parameters dict; default to 0.0 if missing:
         param_values = [
             serum_parameters.get(f"Param {i}", 0.0)
             for i in range(num_params)
         ]
-        # Pack them as 32-bit (big-endian) floats:
         param_data = struct.pack(f'>{num_params}f', *param_values)
 
-        # Calculate header sizes
         header_format = '>4sI4sI4sI28sI'
         header_size = struct.calcsize(header_format)
         byte_size = header_size + len(param_data)
 
-        # Pack the header
         header = struct.pack(
             header_format,
-            chunk_magic,      # "CcnK"
-            byte_size,        # total size (header + param_data)
-            fx_magic,         # "FPCh"
-            version,          # 1
-            plugin_id,        # "XfsX"
-            fxp_type,         # 1 for single preset
-            preset_name_bytes,# 28-byte name
-            num_params        # number of floats (placeholder)
+            chunk_magic,
+            byte_size,
+            fx_magic,
+            version,
+            plugin_id,
+            fxp_type,
+            preset_name_bytes,
+            num_params
         )
 
-        # Write the FXP file (header + param_data)
         with open(output_path, "wb") as fxp_file:
             fxp_file.write(header)
             fxp_file.write(param_data)
 
         print(f"[INFO] Serum FXP preset written to: {output_path}")
-        print("       (Likely *not* a valid Serum patch yet.)")
+        print("       (Likely not a valid Serum patch.)")
 
     except Exception as e:
         print(f"[ERROR] Failed to generate .fxp file: {e}")
-
-
+"""
 
 def apply_effects_to_preset(preset, cc_map):
     """
     Applies effects settings to the Vital preset, setting defaults if no MIDI CCs are mapped.
     """
     print("🔹 Applying effects to preset...")
+
+    # Ensure 'modulations' list exists
+    if "modulations" not in preset:
+        preset["modulations"] = []
 
     # --- REVERB --- (Mapped to CC 91, or use defaults)
     preset["reverb_dry_wet"] = cc_map.get(91, 0.3)  # Default to 30% mix
@@ -122,39 +115,34 @@ def apply_effects_to_preset(preset, cc_map):
     preset["filter_fx_model"] = 6.0  # A common filter type
     preset["filter_fx_on"] = 1.0
 
-    # --- DISTORTION --- (No CC, default values, optionally controlled by Macro 1)
+    # --- DISTORTION --- (No CC => defaults; optionally controlled by Macro 1)
     preset["distortion_drive"] = 0.5
     preset["distortion_mix"] = 0.3
-    preset["distortion_type"] = 4.0  # Some distortion type
+    preset["distortion_type"] = 4.0
     preset["distortion_on"] = 1.0
 
-    # Allow Macro 1 to control distortion if it's used
     preset["modulations"].append({
         "source": "macro_control_1",
         "destination": "distortion_drive",
         "amount": 0.5
     })
 
-    # --- PHASER --- (No CC, default values, optionally controlled by LFO 2)
+    # --- PHASER --- (No CC => default; optionally LFO 2)
     preset["phaser_dry_wet"] = 0.2
     preset["phaser_feedback"] = 0.3
     preset["phaser_frequency"] = -2.0
     preset["phaser_on"] = 1.0
-
-    # Link Phaser to LFO 2
     preset["modulations"].append({
         "source": "lfo_2",
         "destination": "phaser_frequency",
         "amount": 0.4
     })
 
-    # --- FLANGER --- (No CC, default values, optionally controlled by LFO 3)
+    # --- FLANGER --- (No CC => default; optionally LFO 3)
     preset["flanger_dry_wet"] = 0.3
     preset["flanger_feedback"] = 0.4
     preset["flanger_frequency"] = 1.5
     preset["flanger_on"] = 1.0
-
-    # Link Flanger to LFO 3
     preset["modulations"].append({
         "source": "lfo_3",
         "destination": "flanger_frequency",
@@ -170,7 +158,7 @@ def apply_effects_to_preset(preset, cc_map):
     preset["eq_high_gain"] = 2.0
     preset["eq_on"] = 1.0
 
-    # --- COMPRESSOR (Default settings, no CC) ---
+    # --- COMPRESSOR (Defaults) ---
     preset["compressor_attack"] = 0.5
     preset["compressor_release"] = 0.5
     preset["compressor_mix"] = 1.0
@@ -182,26 +170,27 @@ def apply_effects_to_preset(preset, cc_map):
     print("✅ Effects applied successfully!")
 
 
-
 def apply_random_modulators_to_preset(preset, cc_map):
     """
-    Adds Random Modulators (Random 1–4) to the preset, with CC mapping if available.
+    Adds Random Modulators (Random 1–4) to the preset, with CC-based overrides if available.
     """
     print("🔹 Applying Random Modulators to preset...")
 
-    for i in range(1, 5):  # Random 1 to 4
-        random_freq_key = f"random_{i}_frequency"
-        random_sync_key = f"random_{i}_sync"
-        random_tempo_key = f"random_{i}_tempo"
-        random_on_key = f"random_{i}_on"
+    if "modulations" not in preset:
+        preset["modulations"] = []
 
-        # Assign default values
-        preset[random_freq_key] = cc_map.get(50 + i, 1.0)  # Default frequency = 1Hz (CC 51–54 could override)
-        preset[random_sync_key] = 1.0  # Synced to tempo
-        preset[random_tempo_key] = 8.0  # Default tempo sync subdivision
-        preset[random_on_key] = 1.0  # Enable the random modulator
+    for i in range(1, 5):  # Random 1..4
+        freq_key = f"random_{i}_frequency"
+        sync_key = f"random_{i}_sync"
+        tempo_key = f"random_{i}_tempo"
+        on_key = f"random_{i}_on"
 
-    # Add `random_values` array to store seeds
+        # If CC 51 => Random1 freq, CC 52 => Random2 freq, etc.
+        preset[freq_key] = cc_map.get(50 + i, 1.0)
+        preset[sync_key] = 1.0
+        preset[tempo_key] = 8.0
+        preset[on_key] = 1.0
+
     preset["random_values"] = [
         {"seed": 4},
         {"seed": 4},
@@ -212,71 +201,49 @@ def apply_random_modulators_to_preset(preset, cc_map):
     print("✅ Random Modulators applied successfully!")
 
 
-
 def apply_global_settings_to_preset(preset, cc_map):
     """
-    Configures global settings like polyphony, legato, portamento, tuning, and MPE.
+    Configures various global Vital parameters (polyphony, legato, portamento, etc.).
     """
     print("🔹 Applying Global Settings to preset...")
 
-    # --- POLYPHONY --- (Default to 8 voices, or user-defined)
-    preset["polyphony"] = cc_map.get(127, 8.0)  # Default to 8 voices if no CC 127 is mapped
+    # Ensure modulations is present
+    if "modulations" not in preset:
+        preset["modulations"] = []
 
-    # --- LEGATO MODE --- (If active, notes glide into each other)
-    preset["legato"] = 1.0 if cc_map.get(68, 0) > 0 else 0.0  # CC 68 is Legato Toggle
+    # Polyphony => CC127 or default 8
+    preset["polyphony"] = cc_map.get(127, 8.0)
 
-    # --- PORTAMENTO (GLIDE) SETTINGS ---
-    preset["portamento_time"] = cc_map.get(5, 0.2)  # CC 5 can control glide time (Default: 0.2s)
-    preset["portamento_scale"] = 1.0  # Standard glide behavior
-    preset["portamento_force"] = 0.0  # Off unless explicitly enabled
+    # Legato => CC68 toggle
+    preset["legato"] = 1.0 if cc_map.get(68, 0) > 0 else 0.0
 
-    # --- PITCH BEND RANGE ---
-    preset["pitch_bend_range"] = cc_map.get(100, 12.0)  # Default to 12 semitones unless overridden
+    # Portamento => CC5
+    preset["portamento_time"] = cc_map.get(5, 0.2)
+    preset["portamento_scale"] = 1.0
+    preset["portamento_force"] = 0.0
 
-    # --- TRANSPOSE & TUNING ---
-    preset["voice_transpose"] = 0.0  # No transposition by default
-    preset["voice_tune"] = 0.0  # No fine-tuning by default
+    # Pitch Bend Range => CC100
+    preset["pitch_bend_range"] = cc_map.get(100, 12.0)
 
-    # --- MPE (MIDI Polyphonic Expression) ---
-    preset["mpe_enabled"] = cc_map.get(126, 0.0)  # CC 126 enables/disables MPE
+    # Transpose / Tuning
+    preset["voice_transpose"] = 0.0
+    preset["voice_tune"] = 0.0
+
+    # MPE => CC126
+    preset["mpe_enabled"] = cc_map.get(126, 0.0)
 
     print("✅ Global Settings applied successfully!")
 
 
-
 def apply_sample_oscillator_to_preset(preset, midi_data):
     """
-    Detects if a sample-based MIDI instrument is used and sets the `sample` field in the Vital preset.
+    Checks if 'sample' info is present in midi_data. If so, configures a sample-based
+    oscillator in the Vital preset.
     """
     print("🔹 Checking for Sample-Based Oscillator...")
 
-    # Check if MIDI contains sample-based instruments (e.g., drums, one-shot samples)
-    if "sample" in midi_data:
-        sample_info = midi_data["sample"]
-
-        preset["sample"] = {
-            "name": sample_info.get("name", "Unknown Sample"),
-            "sample_rate": sample_info.get("sample_rate", 44100),  # Default 44.1kHz
-            "length": sample_info.get("length", 44100),  # Default 1 second at 44.1kHz
-            "samples": sample_info.get("samples", "")  # Base64-encoded sample data
-        }
-
-        print(f"✅ Sample-Based Oscillator Applied: {preset['sample']['name']}")
-    else:
-        print("⚠️ No sample-based instrument detected. Skipping sample oscillator.")
-
-
-
-def apply_sample_oscillator_to_preset(preset, midi_data):
-    """
-    Detects if a sample-based MIDI instrument is used and sets the `sample` field in the Vital preset.
-    Ensures `midi_data` contains valid sample information before processing.
-    """
-    print("🔹 Checking for Sample-Based Oscillator...")
-
-    # Validate `midi_data` and check for sample information
     if not isinstance(midi_data, dict):
-        print("⚠️ Warning: `midi_data` is not a valid dictionary. Skipping sample oscillator.")
+        print("⚠️ `midi_data` is invalid. Skipping sample oscillator.")
         return
 
     sample_info = midi_data.get("sample", {})
@@ -284,15 +251,11 @@ def apply_sample_oscillator_to_preset(preset, midi_data):
         print("⚠️ No valid sample-based instrument detected. Skipping sample oscillator.")
         return
 
-    # Apply sample settings
     preset["sample"] = {
         "name": sample_info.get("name", "Unknown Sample"),
-        "sample_rate": sample_info.get("sample_rate", 44100),  # Default 44.1kHz
-        "length": sample_info.get("length", 44100),  # Default 1 second at 44.1kHz
-        "samples": sample_info["samples"]  # Base64-encoded sample data
+        "sample_rate": sample_info.get("sample_rate", 44100),
+        "length": sample_info.get("length", 44100),
+        "samples": sample_info["samples"]
     }
 
     print(f"✅ Sample-Based Oscillator Applied: {preset['sample']['name']}")
-
-
-

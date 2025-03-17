@@ -9,18 +9,22 @@ from config import (
 )
 
 # Configure logging
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
 # Calculate the parent directory (one level up from Backend)
-parent_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+parent_dir = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), '..')
+)
 
 from midi_parser import parse_midi
 from vital_mapper import (
     load_default_vital_preset,
     modify_vital_preset,
     save_vital_preset
-)   
+)
 
 
 ### Helper Functions
@@ -61,7 +65,6 @@ def get_snapshot_method():
         print("⚠️ Invalid input! Please enter 1, 2, or 3.")
 
 
-
 ### Modular Functions
 def get_user_inputs():
     """
@@ -97,6 +100,7 @@ def parse_midi_file(midi_file):
     logging.info(f"  - Notes: {len(midi_data['notes'])}")
     logging.info(f"  - Control Changes: {len(midi_data['control_changes'])}")
     logging.info(f"  - Pitch Bends: {len(midi_data['pitch_bends'])}")
+
     if "time_signatures" in midi_data:
         logging.info(f"  - Time Signatures: {len(midi_data['time_signatures'])}")
     if "key_signatures" in midi_data:
@@ -110,8 +114,9 @@ def parse_midi_file(midi_file):
 
 def generate_vital_preset(midi_data, output_path, snapshot_method):
     """
-    Generate a Vital preset from MIDI data with THREE-frame wavetable integration.
+    Generate a Vital preset from MIDI data, integrating a 3-frame wavetable.
     """
+    # 1) Find default Vital preset
     default_preset_path = os.path.join(parent_dir, PRESETS_DIR, DEFAULT_VITAL_PRESET_FILENAME)
     if not os.path.exists(default_preset_path):
         logging.error(f"Default Vital preset {default_preset_path} not found.")
@@ -123,11 +128,17 @@ def generate_vital_preset(midi_data, output_path, snapshot_method):
         logging.error("Failed to load the default Vital preset.")
         return
 
+    # 2) Modify the preset using MIDI data (this calls your updated logic in 'modify_vital_preset')
     logging.info("Modifying Vital preset to incorporate MIDI data and generate 3 wavetable frames...")
-    mapped_preset, frame_data_list = modify_vital_preset(vital_preset, midi_data, snapshot_method)
+    modified_preset, frame_data_list = modify_vital_preset(
+        vital_preset,
+        midi_data,
+        snapshot_method
+    )
 
+    # 3) Save the new preset
     logging.info("Saving new Vital preset with 3-frame wavetable data...")
-    save_vital_preset(mapped_preset, output_path, frame_data_list)
+    save_vital_preset(modified_preset, output_path, frame_data_list)
     logging.info("✅ Vital preset generated successfully!")
 
 
@@ -140,10 +151,10 @@ def main():
         # Collect user inputs
         midi_file, output_path, snapshot_method = get_user_inputs()
 
-        # Parse MIDI file
+        # Parse MIDI file into a data dict
         midi_data = parse_midi_file(midi_file)
 
-        # Convert MIDI to Vital preset
+        # Convert MIDI data into a Vital preset
         logging.info("Converting MIDI data to Vital preset...")
         generate_vital_preset(midi_data, output_path, snapshot_method)
 
