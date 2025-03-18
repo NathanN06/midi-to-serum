@@ -1,18 +1,17 @@
 # vital_mapper.py
 
 import json
-import copy
+
 import zlib
 import base64
-import pretty_midi
+
 import re
 import numpy as np
 import os
 import logging
 
 # Local imports
-from midi_analysis import estimate_frame_count
-from midi_parser import parse_midi
+
 from config import (
     MIDI_TO_VITAL_MAP,
     DEFAULT_ADSR,
@@ -76,38 +75,33 @@ def load_default_vital_preset(default_preset_path):
 def build_lfo_from_cc(preset, midi_data, lfo_idx=1, destination="filter_1_cutoff", one_shot=False):
     """
     Builds an LFO shape from a MIDI CC source or generates a fallback LFO if no CC is provided.
-    
-    - Uses MIDI CC to shape LFOs dynamically.
-    - Ensures at least 16 points for smoother LFOs.
-    - Supports free-running and one-shot LFOs.
-    - Assigns different LFO shapes for LFO 1-4.
+
+    - Uses different MIDI CCs to control LFO **Rate (Speed)**
+    - Uses MIDI CC11 (Expression) to control **Depth (Modulation Strength)**
+    - Supports free-running and one-shot LFOs
     """
+
     num_points = 16  # More points = smoother LFOs
     times_interp = np.linspace(0, 1, num_points)
 
-    # Select LFO Shape based on Index
-    if lfo_idx == 1:
-        values_interp = (np.sin(times_interp * 2 * np.pi) + 1) / 2  # **Sine Wave (0 to 1)**
-        lfo_name = "Sine LFO"
-    elif lfo_idx == 2:
-        values_interp = ((np.sign(np.sin(times_interp * 2 * np.pi)) + 1) / 2) * 0.9  # **Square Wave (Scaled)**
-        lfo_name = "Square LFO"
-    elif lfo_idx == 3:
-        values_interp = ((2 * (times_interp % 1) - 1) + 1) / 2  # **Saw Wave (0 to 1)**
-        lfo_name = "Saw LFO"
-    elif lfo_idx == 4:
-        values_interp = ((2 * np.abs(2 * (times_interp % 1) - 1) - 1) + 1) / 2  # **Triangle Wave (0 to 1)**
-        lfo_name = "Triangle LFO"
-    else:
-        values_interp = (np.sin(times_interp * 2 * np.pi) + 1) / 2  # Default to Sine
-        lfo_name = "Default LFO"
+    # Default LFO shapes
+    lfo_shapes = {
+        1: ("Sine LFO", np.sin(times_interp * 2 * np.pi)),  # Sine
+        2: ("Square LFO", np.sign(np.sin(times_interp * 2 * np.pi))),  # Square
+        3: ("Saw LFO", 2 * (times_interp % 1) - 1),  # Saw
+        4: ("Triangle LFO", 2 * np.abs(2 * (times_interp % 1) - 1) - 1)  # Triangle
+    }
 
-    # Ensure values are within [0, 1]
+    # Select LFO shape
+    lfo_name, values_interp = lfo_shapes.get(lfo_idx, lfo_shapes[1])
+
+    # Normalize values between 0 and 1
+    values_interp = (values_interp + 1) / 2  
     values_interp = np.clip(values_interp, 0, 1)
 
-    # Combine times+values into the "points" array
-    points = [val for pair in zip(times_interp, values_interp) for val in pair]  
-    powers = [0.0] * num_points  # Linear interpolation
+    # Generate time/value pairs for Vital's LFO JSON format
+    points = [val for pair in zip(times_interp, values_interp) for val in pair]
+    powers = [0.0] * num_points  
 
     # Ensure "settings" exists
     preset.setdefault("settings", {})
@@ -123,6 +117,21 @@ def build_lfo_from_cc(preset, midi_data, lfo_idx=1, destination="filter_1_cutoff
             "smooth": False
         })
 
+    # 🎛 **Assign Unique CCs for LFO Rate**
+    cc_map = {cc["controller"]: cc["value"] / 127.0 for cc in midi_data.get("control_changes", [])}
+
+    lfo_rate_cc_map = {  
+        1: cc_map.get(1, 0.5),  # CC1 → LFO1 Rate
+        2: cc_map.get(2, 0.5),  # CC2 → LFO2 Rate
+        3: cc_map.get(3, 0.5),  # CC3 → LFO3 Rate
+        4: cc_map.get(4, 0.5)   # CC4 → LFO4 Rate
+    }
+    lfo_depth_cc = cc_map.get(11, 0.8)  # CC11 = Expression → Depth
+
+    # Apply non-linear scaling for better control
+    lfo_rate_scaled = 1.0 + (lfo_rate_cc_map[lfo_idx] * 4.0)  # 1x to 5x speed scaling
+    lfo_depth_scaled = 0.2 + (lfo_depth_cc * 0.8)  # 20% to 100% depth
+
     # Update the correct LFO
     preset["settings"]["lfos"][lfo_idx - 1] = {
         "name": lfo_name,
@@ -132,24 +141,24 @@ def build_lfo_from_cc(preset, midi_data, lfo_idx=1, destination="filter_1_cutoff
         "smooth": True  # Smooth LFO
     }
 
-    # Set LFO frequency and sync
-    preset["settings"][f"lfo_{lfo_idx}_frequency"] = np.random.uniform(1.0, 3.0)  # Slight randomization
+    # Apply dynamic speed & depth settings
+    preset["settings"][f"lfo_{lfo_idx}_frequency"] = lfo_rate_scaled
     preset["settings"][f"lfo_{lfo_idx}_sync"] = 0.0  # Free running mode
-    preset["settings"][f"lfo_{lfo_idx}_tempo"] = np.random.choice([2.0, 4.0, 8.0])  # Random tempo sync
+    preset["settings"][f"lfo_{lfo_idx}_tempo"] = np.random.choice([2.0, 4.0, 8.0])  
 
-    # Set One-Shot Mode if enabled
+    # Apply One-Shot Mode if enabled
     if one_shot:
-        preset["settings"][f"lfo_{lfo_idx}_one_shot"] = 1.0  # Enable one-shot behavior
+        preset["settings"][f"lfo_{lfo_idx}_one_shot"] = 1.0  
 
-    # Add modulation to the chosen destination
+    # Apply LFO Depth as Modulation Strength
     preset.setdefault("modulations", [])
     preset["modulations"].append({
         "source": f"lfo_{lfo_idx}",
         "destination": destination,
-        "amount": 0.6  # Amount of modulation
+        "amount": lfo_depth_scaled  
     })
 
-    print(f"✅ {lfo_name} -> {destination} applied (one_shot={one_shot}).")
+    print(f"✅ {lfo_name} -> {destination} applied (one_shot={one_shot}). Rate={lfo_rate_scaled:.2f}, Depth={lfo_depth_scaled:.2f}")
 
 
 def add_lfos_to_preset(preset, cc_data, notes):
@@ -372,6 +381,132 @@ def apply_dynamic_env_to_preset(preset, midi_data):
     print("✅ Envelope modulations added: ENV2 → Filter, ENV3 → Warp")
 
 
+def apply_filters_to_preset(preset, cc_map):
+    """
+    Enables and configures Filter 1 & 2 based on MIDI CC data.
+    Maps cutoff and resonance values from CCs, using a log-scale mapping from 20 Hz to 20 kHz,
+    and writes parameters under preset["filters"].
+    """
+    # Ensure filters structure exists
+    preset.setdefault("filters", {})
+    preset["filters"].setdefault("filter_1", {})
+    preset["filters"].setdefault("filter_2", {})
+
+    def scale_cutoff(cc_value):
+        """
+        Given cc_value (0.0–1.0), compute a target frequency between 20 Hz and 20 kHz,
+        then convert that frequency back to a normalized value (0.0–1.0) using a logarithmic scale.
+        """
+        min_freq = 20.0
+        max_freq = 20000.0
+        # Compute target frequency (this step is optional if you want a non-linear mapping)
+        freq = min_freq * (max_freq / min_freq) ** cc_value
+        # Convert frequency back to normalized (0–1) using log scaling
+        normalized = (math.log(freq) - math.log(min_freq)) / (math.log(max_freq) - math.log(min_freq))
+        return max(0.0, min(1.0, normalized))
+
+    # --- Filter 1 ---
+    filter_1_ccs = {74, 71, 102}  # 74 & 102 for cutoff, 71 for resonance
+    filter_1_detected = [cc for cc in filter_1_ccs if cc in cc_map and cc_map[cc] >= 0.01]
+    if filter_1_detected:
+        preset["filters"]["filter_1"]["enabled"] = True
+        for cc in filter_1_detected:
+            if cc in {74, 102}:
+                preset["filters"]["filter_1"]["cutoff"] = scale_cutoff(cc_map[cc])
+            elif cc == 71:
+                preset["filters"]["filter_1"]["resonance"] = cc_map[cc]
+    else:
+        preset["filters"]["filter_1"]["enabled"] = False
+
+    # --- Filter 2 ---
+    filter_2_ccs = {85, 86, 103, 104}  # 85 & 103 for cutoff; 86 & 104 for resonance
+    filter_2_detected = [cc for cc in filter_2_ccs if cc in cc_map and cc_map[cc] >= 0.01]
+    if filter_2_detected:
+        preset["filters"]["filter_2"]["enabled"] = True
+        for cc in filter_2_detected:
+            if cc in {85, 103}:
+                preset["filters"]["filter_2"]["cutoff"] = scale_cutoff(cc_map[cc])
+            elif cc in {86, 104}:
+                preset["filters"]["filter_2"]["resonance"] = cc_map[cc]
+    else:
+        preset["filters"]["filter_2"]["enabled"] = False
+
+    print(f"Filter 1 CCs detected: {filter_1_detected}")
+    print(f"Filter 2 CCs detected: {filter_2_detected}")
+
+
+def apply_effects_to_preset(preset, cc_map):
+    """
+    Applies MIDI CC-based effect settings. This function creates or updates entries under
+    preset["fx"] to enable effects (like reverb, chorus, delay, phaser, distortion, etc.)
+    and sets their key parameters.
+    """
+    preset.setdefault("fx", {})
+
+    # Reverb (e.g., CC91 controls reverb dry/wet)
+    if 91 in cc_map and cc_map[91] > 0.1:
+        preset["fx"].setdefault("reverb", {})
+        preset["fx"]["reverb"]["enabled"] = True
+        preset["fx"]["reverb"]["dry_wet"] = cc_map[91]
+    else:
+        if "reverb" in preset["fx"]:
+            preset["fx"]["reverb"]["enabled"] = False
+
+    # Chorus (e.g., CC93 controls chorus dry/wet)
+    if 93 in cc_map and cc_map[93] > 0.1:
+        preset["fx"].setdefault("chorus", {})
+        preset["fx"]["chorus"]["enabled"] = True
+        preset["fx"]["chorus"]["dry_wet"] = cc_map[93]
+    else:
+        if "chorus" in preset["fx"]:
+            preset["fx"]["chorus"]["enabled"] = False
+
+    # Delay (e.g., CC94 controls delay dry/wet)
+    if 94 in cc_map and cc_map[94] > 0.1:
+        preset["fx"].setdefault("delay", {})
+        preset["fx"]["delay"]["enabled"] = True
+        preset["fx"]["delay"]["dry_wet"] = cc_map[94]
+    else:
+        if "delay" in preset["fx"]:
+            preset["fx"]["delay"]["enabled"] = False
+
+    # Phaser (e.g., CC95 controls phaser dry/wet)
+    if 95 in cc_map and cc_map[95] > 0.1:
+        preset["fx"].setdefault("phaser", {})
+        preset["fx"]["phaser"]["enabled"] = True
+        preset["fx"]["phaser"]["dry_wet"] = cc_map[95]
+    else:
+        if "phaser" in preset["fx"]:
+            preset["fx"]["phaser"]["enabled"] = False
+
+    # Distortion (e.g., CC116 controls distortion drive)
+    if 116 in cc_map and cc_map[116] > 0.1:
+        preset["fx"].setdefault("distortion", {})
+        preset["fx"]["distortion"]["enabled"] = True
+        preset["fx"]["distortion"]["drive"] = cc_map[116]
+    else:
+        if "distortion" in preset["fx"]:
+            preset["fx"]["distortion"]["enabled"] = False
+
+    # Compressor (e.g., CC117 controls compressor amount)
+    if 117 in cc_map and cc_map[117] > 0.1:
+        preset["fx"].setdefault("compressor", {})
+        preset["fx"]["compressor"]["enabled"] = True
+        preset["fx"]["compressor"]["amount"] = cc_map[117]
+    else:
+        if "compressor" in preset["fx"]:
+            preset["fx"]["compressor"]["enabled"] = False
+
+    # Flanger (e.g., CC119 controls flanger dry/wet)
+    if 119 in cc_map and cc_map[119] > 0.1:
+        preset["fx"].setdefault("flanger", {})
+        preset["fx"]["flanger"]["enabled"] = True
+        preset["fx"]["flanger"]["dry_wet"] = cc_map[119]
+    else:
+        if "flanger" in preset["fx"]:
+            preset["fx"]["flanger"]["enabled"] = False
+
+
 def set_vital_parameter(preset, param_name, value):
     """
     Safely set a Vital parameter, placing it in top-level or 'settings' as needed.
@@ -387,6 +522,25 @@ def set_vital_parameter(preset, param_name, value):
         preset["settings"][control_key] = value
     else:
         preset[param_name] = value
+
+
+def enable_sample_in_preset(preset, sample_path="assets/sample.wav"):
+    """
+    Reads a WAV file from sample_path, base64-encodes its bytes,
+    and embeds the data in the preset's "sample" key.
+    """
+    try:
+        with open(sample_path, "rb") as f:
+            raw = f.read()
+        encoded = base64.b64encode(raw).decode("utf-8")
+        preset["sample"] = {
+            "enabled": True,
+            "playback_mode": "one_shot",
+            "sample_bytes": encoded
+        }
+        print("Sample oscillator enabled with sample from:", sample_path)
+    except Exception as e:
+        print(f"Error loading sample from {sample_path}: {e}")
 
 
 def update_settings(modified_preset, notes, snapshot_method):
@@ -659,11 +813,19 @@ def replace_three_wavetables(json_data, frame_data_list):
 def modify_vital_preset(vital_preset, midi_file, snapshot_method="1"):
     """
     High-level function that modifies a Vital preset with MIDI data
-    (notes, CCs, pitch bends, etc.) and returns the updated preset + wave frames.
+    (notes, CCs, pitch bends, etc.) and returns the updated preset plus
+    the generated wavetable frame data.
     """
-    logging.info(f"🔍 Debug: Received midi_file of type {type(midi_file)}")
+    import copy, os, logging
+    from midi_parser import parse_midi
+    # Ensure that the following helper functions are available:
+    # update_settings, apply_cc_modulations, apply_dynamic_env_to_preset,
+    # generate_three_frame_wavetables, build_lfo_from_cc,
+    # apply_filters_to_preset, apply_effects_to_preset, enable_sample_in_preset
 
-    # 1) Parse MIDI data if midi_file is a string path; otherwise assume it's a dict
+    logging.info(f"🔍 Debug: Received midi_file of type {type(midi_file)}")
+    
+    # 1) Parse MIDI data: either from an existing dict or a file path
     try:
         if isinstance(midi_file, dict):
             logging.warning("⚠️ Using existing parsed MIDI data instead of a file path.")
@@ -677,7 +839,7 @@ def modify_vital_preset(vital_preset, midi_file, snapshot_method="1"):
         logging.error(f"❌ Error parsing MIDI: {e}")
         midi_data = {"notes": [], "control_changes": [], "pitch_bends": []}
 
-    # 2) Copy the preset so we don't mutate the original
+    # 2) Deep-copy the preset so the original is not mutated
     modified = copy.deepcopy(vital_preset)
 
     # Extract MIDI components
@@ -685,23 +847,23 @@ def modify_vital_preset(vital_preset, midi_file, snapshot_method="1"):
     ccs = midi_data.get("control_changes", [])
     pitch_bends = midi_data.get("pitch_bends", [])
 
-    # Ensure "settings" exists in the preset
+    # Ensure "settings" exists
     modified.setdefault("settings", {})
 
-    # 3) Snapshot method => set basic osc1 pitch/level
+    # 3) Snapshot method: update osc1 pitch/level based on chosen method
     update_settings(modified, notes, snapshot_method)
 
-    # 4) Apply CC data => direct param mapping
+    # 4) Apply CC-based direct parameter mappings
     cc_map = {cc["controller"]: cc["value"] / 127.0 for cc in ccs}
     apply_cc_modulations(modified, cc_map)
 
-    # 5) Pitch bend => set final pitch_wheel
+    # 5) Set pitch bend (final pitch wheel value)
     modified["pitch_wheel"] = pitch_bends[-1]["pitch"] / 8192.0 if pitch_bends else 0.0
 
-    # 6) Apply **Custom Envelopes** from MIDI
+    # 6) Apply dynamic envelopes based on MIDI note data
     apply_dynamic_env_to_preset(modified, midi_data)
 
-    # ✅ Debugging: Print Envelope Values to Confirm They Are Set
+    # ✅ Debug: Log final envelope values
     logging.info("\n🔍 **Final Envelope Values in Modified Preset:**")
     for env in ["env_1", "env_2", "env_3"]:
         logging.info(f"  {env}_attack: {modified.get(f'{env}_attack', 'N/A')}")
@@ -709,51 +871,40 @@ def modify_vital_preset(vital_preset, midi_file, snapshot_method="1"):
         logging.info(f"  {env}_sustain: {modified.get(f'{env}_sustain', 'N/A')}")
         logging.info(f"  {env}_release: {modified.get(f'{env}_release', 'N/A')}")
 
-    # 7) Generate 3 distinct wavetable frames
+    # 7) Generate three wavetable frames
     frame_data = generate_three_frame_wavetables(midi_data, num_frames=3, frame_size=2048)
 
-    ### ✅ Enable Oscillators Based on MIDI Notes ###
+    # 8) Enable oscillators based on note count
     num_notes = len(notes)
     modified["settings"]["osc_1_on"] = 1.0 if num_notes > 0 else 0.0
     modified["settings"]["osc_2_on"] = 1.0 if num_notes > 1 else 0.0
     modified["settings"]["osc_3_on"] = 1.0 if num_notes > 2 else 0.0
 
-    ### ✅ Enable SMP Based on MIDI Data ###
-    if 31 in cc_map and cc_map[31] > 0.1:
+    # 9) Enable Sample Oscillator if specific MIDI CCs are present
+    SMP_CCS = {31, 39, 40, 74, 85, 86}  # List of CCs that can trigger the sample oscillator
+    smp_detected = [cc for cc in SMP_CCS if cc in cc_map and cc_map[cc] > 0.01]
+    if smp_detected:
         modified["settings"]["sample_on"] = 1.0
-        logging.info("✅ Enabling SMP (Sample Oscillator) due to MIDI CC31.")
+        logging.info(f"✅ Enabling SMP (Sample Oscillator) due to MIDI CCs: {smp_detected}.")
+        enable_sample_in_preset(modified, sample_path="assets/sample.wav")
+    else:
+        modified["settings"]["sample_on"] = 0.0
+        logging.info("❌ SMP NOT Enabled.")
 
-    ### ✅ Enable Filters Based on CC Messages ###
-    filter_mappings = {
-        74: "filter_1_on", 102: "filter_1_on",
-        103: "filter_2_on", 104: "filter_2_on",
-        75: "filter_fx_on", 107: "filter_fx_on"
-    }
-    for cc in ccs:
-        if cc["controller"] in filter_mappings:
-            modified["settings"][filter_mappings[cc["controller"]]] = 1.0
+    # 10) Apply filters using the updated, modular function
+    apply_filters_to_preset(modified, cc_map)
 
-    ### ✅ Enable Effects Based on CC Messages (with Dynamic Amount) ###
-    effects_mapping = {
-        91: "reverb_dry_wet",
-        93: "chorus_dry_wet",
-        94: "delay_dry_wet",
-        95: "phaser_dry_wet",
-        117: "compressor_amount",
-        116: "distortion_drive",
-        119: "flanger_dry_wet",
-    }
-    for cc_num, setting in effects_mapping.items():
-        if cc_num in cc_map and cc_map[cc_num] > 0.1:
-            modified["settings"][setting] = cc_map[cc_num]
+    # 11) Apply effects using the new modular function (instead of inline mapping)
+    apply_effects_to_preset(modified, cc_map)
 
-    ### ✅ Apply **LFO Modulations** ###
-    build_lfo_from_cc(modified, midi_data, lfo_idx=1, destination="filter_1_cutoff")  # LFO1 → Filter Cutoff
-    build_lfo_from_cc(modified, midi_data, lfo_idx=2, destination="osc_1_pitch", one_shot=True)  # LFO2 → Pitch (One-Shot)
-    build_lfo_from_cc(modified, midi_data, lfo_idx=3, destination="volume")  # LFO3 → Volume Tremolo
-    build_lfo_from_cc(modified, midi_data, lfo_idx=4, destination="filter_2_resonance")  # LFO4 → Filter Resonance
+    # 12) Apply LFO modulations (each with unique rate/depth settings)
+    build_lfo_from_cc(modified, midi_data, lfo_idx=1, destination="filter_1_cutoff")
+    build_lfo_from_cc(modified, midi_data, lfo_idx=2, destination="osc_1_pitch", one_shot=True)
+    build_lfo_from_cc(modified, midi_data, lfo_idx=3, destination="volume")
+    build_lfo_from_cc(modified, midi_data, lfo_idx=4, destination="filter_2_resonance")
 
-    ### ✅ Apply **Envelope Modulations** ###
+    # 13) Append envelope modulations
+    modified.setdefault("modulations", [])
     modified["modulations"].append({
         "source": "env_2",
         "destination": "filter_1_cutoff",
@@ -765,7 +916,7 @@ def modify_vital_preset(vital_preset, midi_file, snapshot_method="1"):
         "amount": 0.6
     })
 
-    # 9) Apply wavetables to the preset & rename them
+    # 14) Apply generated wavetable frames to the first oscillator keyframes
     if "groups" in modified and modified["groups"]:
         group0 = modified["groups"][0]
         if "components" in group0 and group0["components"]:
@@ -773,21 +924,23 @@ def modify_vital_preset(vital_preset, midi_file, snapshot_method="1"):
             if "keyframes" in component0:
                 keyframes = component0["keyframes"]
                 while len(keyframes) < 3:
-                    keyframes.append({"position": 0.0, "wave_data": "", "wave_source": {"type": "sample"}})
-
+                    keyframes.append({
+                        "position": 0.0,
+                        "wave_data": "",
+                        "wave_source": {"type": "sample"}
+                    })
                 wavetable_names = ["Attack Phase", "Harmonic Blend", "Final Release"]
                 for i in range(3):
                     keyframes[i]["wave_data"] = frame_data[i]
                     keyframes[i]["wave_source"] = {"type": "sample"}
-
                 component0["name"] = "Generated Wavetable"
 
-    # ✅ Update the **preset_name** field
+    # 15) Update the preset name based on the MIDI file name
     if "preset_name" in modified:
         midi_base_name = os.path.splitext(os.path.basename(midi_file))[0] if isinstance(midi_file, str) else "Custom_Preset"
         modified["preset_name"] = f"Generated from {midi_base_name}"
 
-    # ✅ Rename the first three instances of `"name": "Init"`
+    # 16) Rename the first three occurrences of "Init" names to descriptive ones
     def replace_init_names(obj, replacement_names, count=[0]):
         if isinstance(obj, dict):
             for key, value in obj.items():
@@ -799,10 +952,9 @@ def modify_vital_preset(vital_preset, midi_file, snapshot_method="1"):
         elif isinstance(obj, list):
             for item in obj:
                 replace_init_names(item, replacement_names, count)
-
     replace_init_names(modified, ["Attack Phase", "Harmonic Blend", "Final Release"])
 
-    logging.info("✅ Finished applying wavetables, envelopes, and LFOs to the preset.")
+    logging.info("✅ Finished applying wavetables, envelopes, LFOs, filters, effects, and sample oscillator.")
     return modified, frame_data
 
 
