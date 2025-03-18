@@ -73,54 +73,145 @@ def load_default_vital_preset(default_preset_path):
         return None
 
 
+def build_lfo_from_cc(preset, midi_data, lfo_idx=1, destination="filter_1_cutoff", one_shot=False):
+    """
+    Builds an LFO shape from a MIDI CC source or generates a fallback LFO if no CC is provided.
+    
+    - Uses MIDI CC to shape LFOs dynamically.
+    - Ensures at least 16 points for smoother LFOs.
+    - Supports free-running and one-shot LFOs.
+    - Assigns different LFO shapes for LFO 1-4.
+    """
+    num_points = 16  # More points = smoother LFOs
+    times_interp = np.linspace(0, 1, num_points)
+
+    # Select LFO Shape based on Index
+    if lfo_idx == 1:
+        values_interp = (np.sin(times_interp * 2 * np.pi) + 1) / 2  # **Sine Wave (0 to 1)**
+        lfo_name = "Sine LFO"
+    elif lfo_idx == 2:
+        values_interp = ((np.sign(np.sin(times_interp * 2 * np.pi)) + 1) / 2) * 0.9  # **Square Wave (Scaled)**
+        lfo_name = "Square LFO"
+    elif lfo_idx == 3:
+        values_interp = ((2 * (times_interp % 1) - 1) + 1) / 2  # **Saw Wave (0 to 1)**
+        lfo_name = "Saw LFO"
+    elif lfo_idx == 4:
+        values_interp = ((2 * np.abs(2 * (times_interp % 1) - 1) - 1) + 1) / 2  # **Triangle Wave (0 to 1)**
+        lfo_name = "Triangle LFO"
+    else:
+        values_interp = (np.sin(times_interp * 2 * np.pi) + 1) / 2  # Default to Sine
+        lfo_name = "Default LFO"
+
+    # Ensure values are within [0, 1]
+    values_interp = np.clip(values_interp, 0, 1)
+
+    # Combine times+values into the "points" array
+    points = [val for pair in zip(times_interp, values_interp) for val in pair]  
+    powers = [0.0] * num_points  # Linear interpolation
+
+    # Ensure "settings" exists
+    preset.setdefault("settings", {})
+    preset["settings"].setdefault("lfos", [])
+
+    # Expand the list if needed
+    while len(preset["settings"]["lfos"]) < lfo_idx:
+        preset["settings"]["lfos"].append({
+            "name": f"LFO {len(preset['settings']['lfos'])+1}",
+            "num_points": 2,
+            "points": [0.0, 1.0, 1.0, 0.0],
+            "powers": [0.0, 0.0],
+            "smooth": False
+        })
+
+    # Update the correct LFO
+    preset["settings"]["lfos"][lfo_idx - 1] = {
+        "name": lfo_name,
+        "num_points": num_points,
+        "points": points,
+        "powers": powers,
+        "smooth": True  # Smooth LFO
+    }
+
+    # Set LFO frequency and sync
+    preset["settings"][f"lfo_{lfo_idx}_frequency"] = np.random.uniform(1.0, 3.0)  # Slight randomization
+    preset["settings"][f"lfo_{lfo_idx}_sync"] = 0.0  # Free running mode
+    preset["settings"][f"lfo_{lfo_idx}_tempo"] = np.random.choice([2.0, 4.0, 8.0])  # Random tempo sync
+
+    # Set One-Shot Mode if enabled
+    if one_shot:
+        preset["settings"][f"lfo_{lfo_idx}_one_shot"] = 1.0  # Enable one-shot behavior
+
+    # Add modulation to the chosen destination
+    preset.setdefault("modulations", [])
+    preset["modulations"].append({
+        "source": f"lfo_{lfo_idx}",
+        "destination": destination,
+        "amount": 0.6  # Amount of modulation
+    })
+
+    print(f"✅ {lfo_name} -> {destination} applied (one_shot={one_shot}).")
+
+
+def add_lfos_to_preset(preset, cc_data, notes):
+    """
+    Adds 4 different LFOs to the preset, each with its own waveform.
+    If CC data is provided, it will shape the LFO dynamically.
+    """
+
+    if "settings" not in preset:
+        preset["settings"] = {}
+
+    if "lfos" not in preset["settings"]:
+        preset["settings"]["lfos"] = []
+
+    print("🔹 Adding LFOs to preset...")
+
+    # Assign each LFO to a unique destination and shape
+    build_lfo_from_cc(preset, midi_data=cc_data, lfo_idx=1, destination="filter_1_cutoff")  # **Sine → Filter Cutoff**
+    build_lfo_from_cc(preset, midi_data=cc_data, lfo_idx=2, destination="osc_1_pitch", one_shot=True)  # **Square → Pitch**
+    build_lfo_from_cc(preset, midi_data=cc_data, lfo_idx=3, destination="volume")  # **Saw → Volume Tremolo**
+    build_lfo_from_cc(preset, midi_data=cc_data, lfo_idx=4, destination="filter_2_resonance")  # **Triangle → Filter Resonance**
+
+    print("✅ 4 LFOs added with unique waveforms!")
+
+
 def generate_lfo_shape_from_cc(cc_data, num_points=16, lfo_type="sine"):
     """
     Generates an LFO shape based on MIDI CC automation.
     Converts CC values into a set of time/value points in Vital's LFO JSON format.
-
-    Args:
-        cc_data (list): MIDI CC automation data.
-        num_points (int): Number of points to sample for LFO shape.
-        lfo_type (str): Type of LFO shape (e.g., "sine", "square", "saw").
-    
-    Returns:
-        dict: LFO shape in Vital JSON format.
     """
+
     if not cc_data:
         print("⚠️ No MIDI CC data found. Skipping LFO generation.")
         return None
 
-    # Sort CCs by time
     cc_data = sorted(cc_data, key=lambda x: x["time"])
     times = np.array([cc["time"] for cc in cc_data])
-    values = np.array([cc["value"] / 127.0 for cc in cc_data])  # Normalize to [0, 1]
+    values = np.array([cc["value"] / 127.0 for cc in cc_data])
 
-    # Create a time axis for interpolation (num_points long, from min time to max time)
     resampled_times = np.linspace(times[0], times[-1], num_points)
     resampled_values = np.interp(resampled_times, times, values)
 
-    # LFO waveforms customization
     if lfo_type == "sine":
-        waveform = np.sin(resampled_times * 2 * np.pi)  # Sine wave
+        waveform = np.sin(resampled_times * 2 * np.pi)
     elif lfo_type == "square":
-        waveform = np.sign(np.sin(resampled_times * 2 * np.pi))  # Square wave
+        waveform = np.sign(np.sin(resampled_times * 2 * np.pi))
     elif lfo_type == "saw":
-        waveform = 2 * (resampled_times % 1) - 1  # Saw wave
+        waveform = 2 * (resampled_times % 1) - 1
     elif lfo_type == "triangle":
-        waveform = 2 * np.abs(2 * (resampled_times % 1) - 1) - 1  # Triangle wave
+        waveform = 2 * np.abs(2 * (resampled_times % 1) - 1) - 1
     else:
-        waveform = np.sin(resampled_times * 2 * np.pi)  # Default to sine if no match
+        waveform = np.sin(resampled_times * 2 * np.pi)
 
-    # Combine times+values into the "points" array per Vital's LFO definition
     lfo_shape = {
         "name": "MIDI_CC_LFO",
         "num_points": num_points,
-        "points": list(resampled_times) + list(resampled_values),  # [time1..timeN, val1..valN]
-        "powers": list(waveform),  # Applying the waveform as the power curve
+        "points": list(resampled_times) + list(resampled_values),
+        "powers": list(waveform),
         "smooth": True
     }
 
-    print(f"✅ Created LFO with type {lfo_type} from MIDI CC data: {lfo_shape}")
+    print(f"✅ Created LFO with type {lfo_type} from MIDI CC data.")
     return lfo_shape
 
 
@@ -167,56 +258,6 @@ def add_envelopes_to_preset(preset, notes):
         "env_2_release": release_time * 1.2
     })
     print("✅ ENV2 applied with slightly different scaling.")
-
-
-def add_lfos_to_preset(preset, cc_data, notes, lfo_target="filter_1_cutoff"):
-    """
-    Adds an LFO to the Vital preset. If CC data is provided, we build the LFO from it;
-    otherwise, we build a simple "adaptive" LFO from note duration.
-    """
-    if not cc_data:
-        print("⚠️ No MIDI CC data. Generating LFO from average note timing.")
-        if notes:
-            avg_len = sum(n["end"] - n["start"] for n in notes) / len(notes)
-            # Just pick an LFO rate in range [0.5..8] inversely related to avg note length
-            lfo_rate = max(0.5, min(8.0, 1.0 / avg_len))
-        else:
-            lfo_rate = 1.0
-
-        # Build a simple up-down LFO shape
-        lfo_shape = {
-            "name": "Adaptive_LFO",
-            "num_points": 16,
-            "points": [0.0, 0.25, 0.5, 0.75, 1.0] * 2,
-            "powers": [0.0]*16,
-            "smooth": True
-        }
-        print(f"✅ Generated a default LFO at {lfo_rate}Hz.")
-    else:
-        lfo_shape = generate_lfo_shape_from_cc(cc_data)
-        if not lfo_shape:
-            print("❌ Could not generate LFO from CC. Exiting LFO step.")
-            return
-        # Random slight variation
-        lfo_rate = 2.0 + np.random.uniform(-0.5, 0.5)
-
-    if "lfos" not in preset:
-        preset["lfos"] = []
-
-    # Add the shape
-    preset["lfos"].append(lfo_shape)
-    preset["lfo_1_frequency"] = lfo_rate
-
-    # Add a modulation (LFO1 -> `lfo_target`)
-    if "modulations" not in preset:
-        preset["modulations"] = []
-    preset["modulations"].append({
-        "source": "lfo_1",
-        "destination": lfo_target,
-        "amount": 0.7
-    })
-
-    print(f"✅ LFO1 -> {lfo_target} at {lfo_rate:.2f}Hz applied.")
 
 
 def apply_dynamic_env_to_preset(preset, midi_data):
@@ -329,82 +370,6 @@ def apply_dynamic_env_to_preset(preset, midi_data):
     print(f"✅ ENV3 → A={env3_attack:.2f}s, D={env3_decay:.2f}s, S={env3_sustain:.2f}, R={env3_release:.2f}s, H={env3_hold:.2f}, Delay={env3_delay:.2f}")
 
     print("✅ Envelope modulations added: ENV2 → Filter, ENV3 → Warp")
-
-
-def build_lfo_from_cc(preset, midi_data, lfo_idx=1, destination="filter_1_cutoff", one_shot=False):
-    """
-    Builds an LFO shape from a MIDI CC source or generates a fallback LFO if no CC is provided.
-    
-    - Uses MIDI CC to shape LFOs dynamically.
-    - Ensures at least 16 points for smoother LFOs.
-    - Supports free-running and one-shot LFOs.
-    """
-    # Gather all CC data (CC1 = Mod Wheel by default)
-    cc_events = [cc for cc in midi_data.get("control_changes", []) if cc["controller"] == 1]
-
-    if not cc_events:
-        print(f"⚠️ No CC1 data found. Generating default triangle LFO for {destination}.")
-        times_interp = np.linspace(0, 1, 16)  # Default time points
-        values_interp = np.abs(2 * (times_interp % 1) - 1)  # Default triangle wave
-    else:
-        # Sort CC events by time
-        cc_events.sort(key=lambda x: x["time"])
-        times = [cc["time"] for cc in cc_events]
-        values = [cc["value"] / 127.0 for cc in cc_events]
-
-        # Normalize times to [0..1]
-        max_t = max(times) if max(times) > 0 else 1e-6
-        times = [t / max_t for t in times]
-
-        # Interpolate to get a higher resolution LFO
-        times_interp = np.linspace(0, 1, 16)  # 16 evenly spaced points
-        values_interp = np.interp(times_interp, times, values)
-
-    # Create the LFO shape
-    points = [val for pair in zip(times_interp, values_interp) for val in pair]  # [t1, v1, t2, v2, ...]
-    num_points = len(times_interp)
-    powers = [0.0] * num_points  # Linear interpolation
-
-    # Ensure "lfos" array exists
-    preset.setdefault("lfos", [])
-
-    # Expand LFOs list if needed
-    while len(preset["lfos"]) < lfo_idx:
-        preset["lfos"].append({
-            "name": f"LFO {len(preset['lfos'])+1}",
-            "num_points": 2,
-            "points": [0.0, 1.0, 1.0, 0.0],
-            "powers": [0.0, 0.0],
-            "smooth": False
-        })
-
-    # Overwrite the chosen LFO
-    preset["lfos"][lfo_idx - 1] = {
-        "name": f"Custom_LFO{lfo_idx}",
-        "num_points": num_points,
-        "points": points,
-        "powers": powers,
-        "smooth": True  # Smooth LFO
-    }
-
-    # Set LFO frequency and sync
-    preset[f"lfo_{lfo_idx}_frequency"] = 2.0  # Default speed
-    preset[f"lfo_{lfo_idx}_sync"] = 0.0  # Free running mode
-    preset[f"lfo_{lfo_idx}_tempo"] = 4.0  # Tempo-synced
-
-    # Set One-Shot Mode if enabled
-    if one_shot:
-        preset[f"lfo_{lfo_idx}_one_shot"] = 1.0  # Enable one-shot behavior
-
-    # Add modulation to the chosen destination
-    preset.setdefault("modulations", [])
-    preset["modulations"].append({
-        "source": f"lfo_{lfo_idx}",
-        "destination": destination,
-        "amount": 0.6  # Amount of modulation
-    })
-
-    print(f"✅ LFO{lfo_idx} -> {destination} applied (one_shot={one_shot}).")
 
 
 def set_vital_parameter(preset, param_name, value):
@@ -920,3 +885,4 @@ def apply_macro_controls_to_preset(preset, cc_map):
     preset["modulations"].extend(macro_mods)
 
     print("✅ Macro Controls applied successfully!")
+ 
