@@ -9,6 +9,7 @@ import re
 import numpy as np
 import os
 import logging
+from midi_analysis import compute_midi_stats
 
 # Local imports
 
@@ -810,6 +811,41 @@ def replace_three_wavetables(json_data, frame_data_list):
     return result
 
 
+def derive_oscillator_params(stats, osc_index):
+    avg_velocity = stats["avg_velocity"]
+    pitch_range = stats["pitch_range"]
+    note_density = stats["note_density"]
+
+    # Oscillator Parameter Logic (adjust as desired)
+    params = {
+        "osc_{0}_unison_voices".format(osc_index): float(min(8, int(1 + note_density / 5))),
+        "osc_{0}_unison_detune".format(osc_index): min(20, pitch_range / 2),
+        "osc_{0}_phase".format(osc_index): 0.5,
+        "osc_{0}_transpose".format(osc_index): 0.0,
+        "osc_{0}_tune".format(osc_index): (stats["avg_pitch"] - 60) % 12,
+        "osc_{0}_level".format(osc_index): min(1.0, avg_velocity + 0.1 * osc_index),
+        "osc_{0}_pan".format(osc_index): (-0.5 + osc_index * 0.5),
+        "osc_{0}_random_phase".format(osc_index): 1.0 if osc_index % 2 else 0.0,
+        "osc_{0}_frame_spread".format(osc_index): min(1.0, pitch_range / 12),
+        "osc_{0}_stereo_spread".format(osc_index): 0.8,
+        "osc_{0}_spectral_unison".format(osc_index): 0.0,
+        "osc_{0}_spectral_morph_amount".format(osc_index): 0.5,
+    }
+
+    return params
+
+
+def apply_oscillator_params_to_preset(preset, midi_data):
+    stats = compute_midi_stats(midi_data)
+
+    for osc_index in range(1, 4):
+        osc_params = derive_oscillator_params(stats, osc_index)
+        preset["settings"].update(osc_params)
+
+    print("✅ Oscillator parameters applied based on MIDI data.")
+
+
+
 def modify_vital_preset(vital_preset, midi_file, snapshot_method="1"):
     """
     High-level function that modifies a Vital preset with MIDI data
@@ -821,7 +857,8 @@ def modify_vital_preset(vital_preset, midi_file, snapshot_method="1"):
     # Ensure that the following helper functions are available:
     # update_settings, apply_cc_modulations, apply_dynamic_env_to_preset,
     # generate_three_frame_wavetables, build_lfo_from_cc,
-    # apply_filters_to_preset, apply_effects_to_preset, enable_sample_in_preset
+    # apply_filters_to_preset, apply_effects_to_preset, enable_sample_in_preset,
+    # compute_midi_stats, derive_oscillator_params, apply_oscillator_params_to_preset
 
     logging.info(f"🔍 Debug: Received midi_file of type {type(midi_file)}")
     
@@ -871,16 +908,20 @@ def modify_vital_preset(vital_preset, midi_file, snapshot_method="1"):
         logging.info(f"  {env}_sustain: {modified.get(f'{env}_sustain', 'N/A')}")
         logging.info(f"  {env}_release: {modified.get(f'{env}_release', 'N/A')}")
 
-    # 7) Generate three wavetable frames
+    # 7) **Apply dynamic oscillator settings based on MIDI data**
+    # This function computes MIDI stats and updates oscillator parameters
+    apply_oscillator_params_to_preset(modified, midi_data)
+
+    # 8) Generate three wavetable frames
     frame_data = generate_three_frame_wavetables(midi_data, num_frames=3, frame_size=2048)
 
-    # 8) Enable oscillators based on note count
+    # 9) Enable oscillators based on note count
     num_notes = len(notes)
     modified["settings"]["osc_1_on"] = 1.0 if num_notes > 0 else 0.0
     modified["settings"]["osc_2_on"] = 1.0 if num_notes > 1 else 0.0
     modified["settings"]["osc_3_on"] = 1.0 if num_notes > 2 else 0.0
 
-    # 9) Enable Sample Oscillator if specific MIDI CCs are present
+    # 10) Enable Sample Oscillator if specific MIDI CCs are present
     SMP_CCS = {31, 39, 40, 74, 85, 86}  # List of CCs that can trigger the sample oscillator
     smp_detected = [cc for cc in SMP_CCS if cc in cc_map and cc_map[cc] > 0.01]
     if smp_detected:
@@ -891,19 +932,19 @@ def modify_vital_preset(vital_preset, midi_file, snapshot_method="1"):
         modified["settings"]["sample_on"] = 0.0
         logging.info("❌ SMP NOT Enabled.")
 
-    # 10) Apply filters using the updated, modular function
+    # 11) Apply filters using the updated, modular function
     apply_filters_to_preset(modified, cc_map)
 
-    # 11) Apply effects using the new modular function (instead of inline mapping)
+    # 12) Apply effects using the new modular function (instead of inline mapping)
     apply_effects_to_preset(modified, cc_map)
 
-    # 12) Apply LFO modulations (each with unique rate/depth settings)
+    # 13) Apply LFO modulations (each with unique rate/depth settings)
     build_lfo_from_cc(modified, midi_data, lfo_idx=1, destination="filter_1_cutoff")
     build_lfo_from_cc(modified, midi_data, lfo_idx=2, destination="osc_1_pitch", one_shot=True)
     build_lfo_from_cc(modified, midi_data, lfo_idx=3, destination="volume")
     build_lfo_from_cc(modified, midi_data, lfo_idx=4, destination="filter_2_resonance")
 
-    # 13) Append envelope modulations
+    # 14) Append envelope modulations
     modified.setdefault("modulations", [])
     modified["modulations"].append({
         "source": "env_2",
@@ -916,7 +957,7 @@ def modify_vital_preset(vital_preset, midi_file, snapshot_method="1"):
         "amount": 0.6
     })
 
-    # 14) Apply generated wavetable frames to the first oscillator keyframes
+    # 15) Apply generated wavetable frames to the first oscillator keyframes
     if "groups" in modified and modified["groups"]:
         group0 = modified["groups"][0]
         if "components" in group0 and group0["components"]:
@@ -935,12 +976,12 @@ def modify_vital_preset(vital_preset, midi_file, snapshot_method="1"):
                     keyframes[i]["wave_source"] = {"type": "sample"}
                 component0["name"] = "Generated Wavetable"
 
-    # 15) Update the preset name based on the MIDI file name
+    # 16) Update the preset name based on the MIDI file name
     if "preset_name" in modified:
         midi_base_name = os.path.splitext(os.path.basename(midi_file))[0] if isinstance(midi_file, str) else "Custom_Preset"
         modified["preset_name"] = f"Generated from {midi_base_name}"
 
-    # 16) Rename the first three occurrences of "Init" names to descriptive ones
+    # 17) Rename the first three occurrences of "Init" names to descriptive ones
     def replace_init_names(obj, replacement_names, count=[0]):
         if isinstance(obj, dict):
             for key, value in obj.items():
@@ -954,7 +995,7 @@ def modify_vital_preset(vital_preset, midi_file, snapshot_method="1"):
                 replace_init_names(item, replacement_names, count)
     replace_init_names(modified, ["Attack Phase", "Harmonic Blend", "Final Release"])
 
-    logging.info("✅ Finished applying wavetables, envelopes, LFOs, filters, effects, and sample oscillator.")
+    logging.info("✅ Finished applying wavetables, envelopes, LFOs, filters, effects, sample oscillator, and custom oscillator settings.")
     return modified, frame_data
 
 
