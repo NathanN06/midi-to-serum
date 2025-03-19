@@ -1,5 +1,7 @@
 # midi_analysis.py
 from midi_parser import parse_midi  # ✅ Import the function instead of redefining it
+from typing import Dict, List, Optional, Any
+
 
 def estimate_frame_count(midi_data, frame_size=2048):
     """
@@ -15,26 +17,36 @@ def estimate_frame_count(midi_data, frame_size=2048):
     return num_frames
 
 
-def compute_midi_stats(midi_data):
+def compute_midi_stats(midi_data: Dict[str, Any]) -> Dict[str, float]:
+    """
+    Compute MIDI statistics (average pitch, average velocity, pitch range, note density)
+    from the MIDI data.
+    
+    Args:
+        midi_data (Dict[str, Any]): Parsed MIDI data.
+        
+    Returns:
+        Dict[str, float]: A dictionary containing 'avg_pitch', 'avg_velocity',
+                          'pitch_range', and 'note_density'.
+    """
     notes = midi_data.get("notes", [])
     if not notes:
         return {
-            "avg_pitch": 60,
+            "avg_pitch": 60.0,
             "avg_velocity": 0.7,
-            "pitch_range": 0,
+            "pitch_range": 0.0,
             "note_density": 1.0
         }
-
-    pitches = [n["pitch"] for n in notes]
-    velocities = [n["velocity"] / 127.0 for n in notes]
-    durations = [n["end"] - n["start"] for n in notes]
-
+    
+    pitches = [float(n["pitch"]) for n in notes]
+    velocities = [float(n["velocity"]) / 127.0 for n in notes]
+    total_time = max(n["end"] for n in notes)
+    
     avg_pitch = sum(pitches) / len(pitches)
     avg_velocity = sum(velocities) / len(velocities)
     pitch_range = max(pitches) - min(pitches)
-    total_time = max(n["end"] for n in notes)
     note_density = len(notes) / total_time if total_time > 0 else 1.0
-
+    
     return {
         "avg_pitch": avg_pitch,
         "avg_velocity": avg_velocity,

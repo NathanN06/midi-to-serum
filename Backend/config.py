@@ -1,4 +1,5 @@
 # config.py
+from typing import Dict, List, Optional, Any
 
 # File and directory names/paths relative to the project root
 DEFAULT_VITAL_PRESET_FILENAME = "Default.vital"
@@ -164,3 +165,53 @@ MIDI_TO_VITAL_MAP = {
     126: "mono_on",
     127: "poly_on",
 }
+
+# Constants for oscillator settings
+DEFAULT_DETUNE_POWER: float = 1.5
+DEFAULT_UNISON_BLEND: float = 0.8
+DEFAULT_RANDOM_PHASE: float = 0.0  # 0.0 for static phase; 1.0 for full randomness
+DEFAULT_STACK_STYLE: float = 0.0   # 0.0 = normal unison stacking mode
+DEFAULT_STEREO_SPREAD: float = 0.8
+DEFAULT_SPECTRAL_MORPH_AMOUNT: float = 0.5
+MAX_UNISON_VOICES: int = 8
+
+
+DEFAULT_KEYFRAMES: int = 3
+DEFAULT_WAVE_DATA: str = (
+    "ABAAugAYwLoAFCC7ABxguwASkLsAFrC7ABrQuwAe8LsAEQi8ABMYvAAVKLwAFzi8ABlIvAAbWLwAHWi8AB94vIAQhLyAEYy8gBKUvIATnLyAFKS8gBWsvIAWtLyAF7y8gBjEvIAZzLyAGtS8gBvcvIAc5LyAHey8gB70vIAf/LxAEAK9wBAGvUARCr3AEQ69QBISvcASFr1AExq9wBMevUAUIr3AFCa9QBUqvcAVLr1AFjK9wBY2vUAXOr3AFz69QBhCvcAYRr1AGUq9wBlOvUAaUr3AGla9QBtavcAbXr1AHGK9wBxmvUAdar3AHW69QB5yvcAedr1AH3q9wB9+vSAQgb1gEIO9oBCFveAQh70gEYm9YBGLvaARjb3gEY+9IBKRvWASk72gEpW94BKXvSATmb1gE5u9oBOdveATn70gFKG9YBSjvaAUpb3gFKe9IBWpvWAVq72gFa294BWvvSAWsb1gFrO9oBa1veAWt70gF7m9YBe7vaAXvb3gF7+9IBjBvWAYw72gGMW94BjHvSAZyb1gGcu9oBnNveAZz70gGtG9YBrTvaAa1b3gGte9IBvZvWAb272gG9294BvfvSAc4b1gHOO9oBzlveAc570gHem9YB3rvaAd7b3gHe+9IB7xvWAe872gHvW94B73vSAf+b1gH/u9oB/9veAf/70QkAC+MJABvlCQAr5wkAO+kJAEvrCQBb7QkAa+8JAHvhCRCL4wkQm+UJEKvnCRC76QkQy+sJENvtCRDr7wkQ++EJIQvjCSEb5QkhK+cJITvpCSFL6wkhW+0JIWvvCSF74Qkxi+MJMZvlCTGr5wkxu+kJMcvrCTHb7Qkx6+8JMfvhCUIL4wlCG+UJQivnCUI76QlCS+sJQlvtCUJr7wlCe+EJUovjCVKb5QlSq+cJUrvpCVLL6wlS2+0JUuvvCVL74QljC+MJYxvlCWMr5wljO+kJY0vrCWNb7Qlja+8JY3vhCXOL4wlzm+UJc6vnCXO76Qlzy+sJc9vtCXPr7wlz++EJhAvjCYQb5QmEK+cJhDvpCYRL6wmEW+0JhGvvCYR74QmUi+MJlJvlCZSr5wmUu+kJlMvrCZTb7QmU6+8JlPvhCaUL4wmlG+UJpSvnCaU76QmlS+sJpVvtCaVr7wmle+EJtYvjCbWb5Qm1q+cJtbvpCbXL6wm12+0JtevvCbX74"
+)
+
+# config.py additions for LFO settings
+DEFAULT_LFO_POINTS: int = 16
+LFO_RATE_MULTIPLIER: float = 4.0  # Scales CC value for LFO rate (1.0 to 5.0)
+LFO_DEPTH_MIN: float = 0.2        # Minimum depth scaling for LFO
+LFO_DEPTH_MULTIPLIER: float = 0.8  # Multiplier for LFO depth (to map CC11 from 0.2 to 1.0)
+DEFAULT_LFO_TEMPO_OPTIONS: List[float] = [2.0, 4.0, 8.0]
+DEFAULT_LFO_SYNC: float = 0.0     # Free running mode
+
+
+# Envelope scaling constants
+ENVELOPE_ATTACK_MULTIPLIER: float = 0.05
+ENVELOPE_ATTACK_MAX: float = 0.2
+ENVELOPE_DECAY_MULTIPLIER: float = 0.15
+ENVELOPE_DECAY_MAX: float = 0.7
+ENVELOPE_RELEASE_MULTIPLIER: float = 0.3
+ENVELOPE_RELEASE_MAX: float = 1.5
+
+# ENV2 scaling factors (relative to ENV1)
+ENV2_ATTACK_SCALE: float = 0.7
+ENV2_DECAY_SCALE: float = 0.8
+ENV2_SUSTAIN_SCALE: float = 0.9
+ENV2_RELEASE_SCALE: float = 1.2
+
+
+# Envelope dynamic scaling constants
+ENV_ATTACK_MIN: float = 0.3
+ENV_ATTACK_MAX: float = 34.0
+ENV_DECAY_MIN: float = 0.0
+ENV_DECAY_MAX: float = 32.0
+ENV_RELEASE_MIN: float = 0.0
+ENV_RELEASE_MAX: float = 32.0
+ENV_DELAY_MAX: float = 4.0
+ENV_HOLD_MIN: float = 0.4
+ENV_HOLD_MAX: float = 1.0
