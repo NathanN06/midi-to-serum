@@ -325,8 +325,6 @@ EFFECTS_PARAM_MAP = {
     "flanger": "dry_wet"
 }
 
-# config.py
-
 # Filter Frequency Range for Scaling
 MIN_FILTER_FREQ = 20.0
 MAX_FILTER_FREQ = 20000.0
