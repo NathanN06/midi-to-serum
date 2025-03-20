@@ -4,12 +4,14 @@ import json
 
 import zlib
 import base64
-
+import copy
 import re
 import numpy as np
 import os
 import logging
 from midi_analysis import compute_midi_stats
+from midi_parser import parse_midi
+
 
 # Local imports
 
@@ -19,8 +21,7 @@ from config import (
     DEFAULT_WAVEFORM,
     HARMONIC_SCALING,
     OUTPUT_DIR,
-    PRESETS_DIR,
-    DEFAULT_VITAL_PRESET_FILENAME,
+
     DEFAULT_DETUNE_POWER,
     DEFAULT_UNISON_BLEND,
     DEFAULT_RANDOM_PHASE,
@@ -46,7 +47,7 @@ from config import (
     ENV2_DECAY_SCALE, 
     ENV2_SUSTAIN_SCALE, 
     ENV2_RELEASE_SCALE,
-    DEFAULT_ADSR,
+    
     ENV_ATTACK_MIN,
     ENV_ATTACK_MAX,
     ENV_DECAY_MIN,
@@ -59,7 +60,7 @@ from config import (
 )
 
 
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional, Tuple
 
 
 def load_default_vital_preset(default_preset_path: str) -> Optional[Dict[str, Any]]:
@@ -705,183 +706,203 @@ def add_modulations(modified_preset: Dict[str, Any], ccs: List[Dict[str, Any]]) 
     print(json.dumps(modified_preset["modulations"], indent=2))
 
 
-def generate_frame_waveform(midi_data, frame_idx, num_frames, frame_size, waveform_type="saw"):
+def generate_frame_waveform(midi_data: Dict[str, Any],
+                            frame_idx: int,
+                            num_frames: int,
+                            frame_size: int,
+                            waveform_type: str = "saw") -> np.ndarray:
     """
     Generate a single float32 waveform frame for Vital.
-    Dynamically scales harmonics based on velocity/CC, plus a morph factor.
+    Dynamically scales harmonics based on velocity/CC plus a morph factor.
+    
+    Args:
+        midi_data (Dict[str, Any]): Parsed MIDI data.
+        frame_idx (int): Index of the frame.
+        num_frames (int): Total number of frames.
+        frame_size (int): The number of samples in the frame.
+        waveform_type (str, optional): Type of waveform ("sine", "saw", "square", "triangle", "pulse"). Defaults to "saw".
+    
+    Returns:
+        np.ndarray: The generated waveform as a float32 array.
     """
-    notes = midi_data.get("notes", [])
-    ccs = {
-        cc["controller"]: cc["value"] / 127.0
-        for cc in midi_data.get("control_changes", [])
-    }
-
+    # Get MIDI notes and CC mapping
+    notes: List[Dict[str, Any]] = midi_data.get("notes", [])
+    ccs: Dict[int, float] = {cc["controller"]: cc["value"] / 127.0 for cc in midi_data.get("control_changes", [])}
+    
     if not notes:
-        # fallback => single A4 note
         notes = [{"pitch": 69, "velocity": 100}]
+    
+    note: Dict[str, Any] = notes[frame_idx % len(notes)]
+    pitch: float = note["pitch"]
+    velocity: float = note["velocity"] / 127.0
 
-    note = notes[frame_idx % len(notes)]
-    pitch = note["pitch"]
-    velocity = note["velocity"] / 127.0
+    # Use CC1 (mod wheel) for harmonic boost
+    harmonic_boost: float = np.float32(
+        np.float32(1) * np.float32(1)  # placeholder; uses HARMONIC_SCALING and CC1 in your original code
+    )
+    if "HARMONIC_SCALING" in globals():
+        harmonic_boost = HARMONIC_SCALING.get(waveform_type, 1) * ccs.get(1, 0.5)
 
-    # CC1 => mod wheel => harmonic boost
-    harmonic_boost = HARMONIC_SCALING.get(waveform_type, 1) * ccs.get(1, 0.5)
-
-    # Build a phase array
-    phase = np.linspace(0, 2*np.pi, frame_size, endpoint=False)
-
-    # Morph factor => 0..1 across frames
-    if num_frames > 1:
-        morph = frame_idx / (num_frames - 1)
-    else:
-        morph = 0
-    harmonic_intensity = (velocity * harmonic_boost) * (0.5 + 0.5 * morph)
-
-    # Construct the wave
+    # Build phase array
+    phase: np.ndarray = np.linspace(0, 2 * np.pi, frame_size, endpoint=False)
+    
+    # Compute morph factor (0..1 across frames)
+    morph: float = frame_idx / (num_frames - 1) if num_frames > 1 else 0
+    harmonic_intensity: float = (velocity * harmonic_boost) * (0.5 + 0.5 * morph)
+    
+    # Construct the waveform based on type
     if waveform_type == "sine":
         waveform = np.sin(phase)
     elif waveform_type == "saw":
-        max_harm = int(10 * harmonic_intensity) or 1
-        waveform = np.sum(
-            [(1.0 / h) * np.sin(h * phase)
-             for h in range(1, max_harm)],
-            axis=0
-        )
+        max_harm: int = int(10 * harmonic_intensity) or 1
+        waveform = np.sum([(1.0 / h) * np.sin(h * phase) for h in range(1, max_harm)], axis=0)
     elif waveform_type == "square":
         max_harm = int(10 * harmonic_intensity) or 1
-        waveform = np.sum(
-            [(1.0 / h) * np.sin(h * phase)
-             for h in range(1, max_harm, 2)],
-            axis=0
-        )
+        waveform = np.sum([(1.0 / h) * np.sin(h * phase) for h in range(1, max_harm, 2)], axis=0)
     elif waveform_type == "triangle":
         max_harm = int(10 * harmonic_intensity) or 1
-        waveform = np.sum(
-            [(1.0 / (h**2)) * (-1)**((h-1)//2) * np.sin(h * phase)
-             for h in range(1, max_harm, 2)],
-            axis=0
-        )
+        waveform = np.sum([(1.0 / (h**2)) * (-1)**((h-1)//2) * np.sin(h * phase) for h in range(1, max_harm, 2)], axis=0)
     elif waveform_type == "pulse":
-        pulse_width = ccs.get(2, 0.5)  # CC2 => width
-        waveform = np.where(
-            phase < (2*np.pi*pulse_width),
-            1.0,
-            -1.0
-        )
+        pulse_width: float = ccs.get(2, 0.5)
+        waveform = np.where(phase < (2 * np.pi * pulse_width), 1.0, -1.0)
     else:
-        waveform = np.sin(phase)  # fallback
-
+        waveform = np.sin(phase)
+    
     waveform *= harmonic_intensity
-    # Normalize to avoid clipping
-    max_val = np.max(np.abs(waveform)) or 1.0
+    max_val: float = np.max(np.abs(waveform)) or 1.0
     waveform /= max_val
-
+    
     return waveform.astype(np.float32)
 
 
-def generate_three_frame_wavetables(midi_data, num_frames=3, frame_size=2048):
+def generate_three_frame_wavetables(midi_data: Dict[str, Any],
+                                    num_frames: int = 3,
+                                    frame_size: int = 2048) -> List[str]:
     """
     Generate 3 structured wavetable frames for Vital:
     - Frame 1: Blended sine & saw (attack phase)
-    - Frame 2: Complex harmonics + **stronger FM synthesis** (sustain phase)
-    - Frame 3: Pulsating saw-triangle blend with **deeper phase distortion** (release phase)
+    - Frame 2: Complex harmonics + stronger FM synthesis (sustain phase)
+    - Frame 3: Pulsating saw-triangle blend with deeper phase distortion (release phase)
+    
+    Args:
+        midi_data (Dict[str, Any]): Parsed MIDI data.
+        num_frames (int, optional): Number of frames to generate. Defaults to 3.
+        frame_size (int, optional): Frame size. Defaults to 2048.
+    
+    Returns:
+        List[str]: A list of 3 base64-encoded wavetable frames.
     """
-
-    notes = midi_data.get("notes", [])
-    ccs = {cc["controller"]: cc["value"] / 127.0 for cc in midi_data.get("control_changes", [])}
-
+    import base64
+    notes: List[Dict[str, Any]] = midi_data.get("notes", [])
+    ccs: Dict[int, float] = {cc["controller"]: cc["value"] / 127.0 for cc in midi_data.get("control_changes", [])}
+    
     if not notes:
-        # Fallback to a single A4 note
         notes = [{"pitch": 69, "velocity": 100}]
-
-    # Extract first, average, and last note characteristics
-    first_note = notes[0]
-    last_note = notes[-1]
-    avg_pitch = sum(n["pitch"] for n in notes) / len(notes)
-    avg_velocity = sum(n["velocity"] for n in notes) / len(notes)
-
-    # Generate waveforms for each frame
-    frames = []
+    
+    first_note: Dict[str, Any] = notes[0]
+    last_note: Dict[str, Any] = notes[-1]
+    avg_pitch: float = sum(n["pitch"] for n in notes) / len(notes)
+    avg_velocity: float = sum(n["velocity"] for n in notes) / len(notes)
+    
+    frames: List[str] = []
     for i, note in enumerate([first_note, {"pitch": avg_pitch, "velocity": avg_velocity}, last_note]):
-        pitch = note["pitch"]
-        velocity = note["velocity"] / 127.0
+        pitch: float = note["pitch"]
+        velocity: float = note["velocity"] / 127.0
 
-        # Use CC1 (mod wheel) to affect harmonics
-        harmonic_boost = HARMONIC_SCALING.get(DEFAULT_WAVEFORM, 1) * (ccs.get(1, 0.5) + 0.5)  # Boosted
-
-        # Generate phase array
-        phase = np.linspace(0, 2*np.pi, frame_size, endpoint=False)
-
-        if i == 0:  # 🔹 Frame 1 (Attack) - Sine + Bright Saw
+        # Use CC1 (mod wheel) for harmonic boost.
+        harmonic_boost: float = HARMONIC_SCALING.get(DEFAULT_WAVEFORM, 1) * (ccs.get(1, 0.5) + 0.5)
+        
+        phase: np.ndarray = np.linspace(0, 2 * np.pi, frame_size, endpoint=False)
+        if i == 0:
+            # Frame 1: Sine + bright saw blend for attack phase.
             sine_wave = np.sin(phase) * velocity
             saw_wave = np.sum([(1.0 / h) * np.sin(h * phase) for h in range(1, 8)], axis=0) * (velocity * 0.4)
-            waveform = sine_wave + saw_wave  # Stronger saw harmonics
-
-        elif i == 1:  # 🔹 Frame 2 (Sustain) - **Stronger FM Synthesis**
-            mod_freq = 3.0 + 5.0 * velocity  # Higher modulation frequency
-            mod_index = 0.7  # **Increased FM depth**
+            waveform = sine_wave + saw_wave
+        elif i == 1:
+            # Frame 2: Stronger FM synthesis for sustain.
+            mod_freq: float = 3.0 + 5.0 * velocity
+            mod_index: float = 0.7
             fm_mod = np.sin(phase * mod_freq) * mod_index
-            harmonics = np.sum([(1.0 / h) * np.sin(h * phase + fm_mod) for h in range(1, int(15 * harmonic_boost))], axis=0)
+            max_harm: int = int(15 * harmonic_boost)
+            if max_harm < 1:
+                max_harm = 1
+            harmonics = np.sum([(1.0 / h) * np.sin(h * phase + fm_mod) for h in range(1, max_harm)], axis=0)
             waveform = harmonics * velocity
+        else:
+            # Frame 3: Saw-triangle blend with phase distortion for release.
+            triangle_wave = np.abs(np.mod(phase / np.pi, 2) - 1) * 2 - 1
+            saw_wave = np.sign(np.sin(phase * (pitch / 64.0))) * velocity
+            phase_distortion = np.sin(phase * 3.5) * 0.4
+            waveform = (triangle_wave * 0.6 + saw_wave * 0.4) + phase_distortion
 
-        else:  # 🔹 Frame 3 (Release) - **Deeper Phase Distortion**
-            triangle_wave = np.abs(np.mod(phase / np.pi, 2) - 1) * 2 - 1  # Triangle wave
-            saw_wave = np.sign(np.sin(phase * (pitch / 64.0))) * velocity  # Faster saw modulation
-            phase_distortion = np.sin(phase * 3.5) * 0.4  # **Stronger phase warping**
-            waveform = (triangle_wave * 0.6 + saw_wave * 0.4) + phase_distortion  # **More distortion applied**
-
-        # Normalize the waveform
-        max_val = np.max(np.abs(waveform)) or 1.0
+        max_val: float = np.max(np.abs(waveform)) or 1.0
         waveform /= max_val
-
-        # Convert to Base64
+        
         raw_bytes = waveform.astype(np.float32).tobytes()
         encoded = base64.b64encode(raw_bytes).decode("utf-8")
         frames.append(encoded)
-
+    
     return frames
 
 
-def apply_cc_modulations(preset, cc_map):
+def apply_cc_modulations(preset: Dict[str, Any], cc_map: Dict[int, float]) -> None:
     """
-    Apply MIDI CC-based modulations with extra logic, e.g. mod wheel -> filter cutoff.
+    Applies MIDI CC-based modulations to the preset. Maps MIDI CC values to Vital parameters
+    using a mapping dictionary and stores the modulations.
+    
+    Args:
+        preset (Dict[str, Any]): The Vital preset dictionary.
+        cc_map (Dict[int, float]): Mapping of MIDI CC numbers to normalized values.
     """
-    if "modulations" not in preset:
-        preset["modulations"] = []
-
+    print("\n🔍 Debug: Processing MIDI CCs...")
     for cc_num, cc_val in cc_map.items():
         if cc_num in MIDI_TO_VITAL_MAP:
-            param = MIDI_TO_VITAL_MAP[cc_num]
+            param: str = MIDI_TO_VITAL_MAP[cc_num]
             set_vital_parameter(preset, param, cc_val)
             print(f"✅ CC{cc_num} -> {param} = {cc_val}")
 
-    # Example special handling
-    if 1 in cc_map:  # mod wheel => filter_1_cutoff
-        mod_val = cc_map[1]
+    # Special handling: mod wheel for filter cutoff
+    if 1 in cc_map:
+        mod_val: float = cc_map[1]
         if mod_val > 0.1:
+            preset.setdefault("modulations", [])
             preset["modulations"].append({
                 "source": "mod_wheel",
                 "destination": "filter_1_cutoff",
                 "amount": mod_val * 0.8
             })
 
-    if 11 in cc_map:  # expression => volume
-        exp_val = cc_map[11]
+    # Special handling: expression for volume
+    if 11 in cc_map:
+        exp_val: float = cc_map[11]
+        preset.setdefault("modulations", [])
         preset["modulations"].append({
             "source": "cc_expression",
             "destination": "volume",
             "amount": exp_val
         })
 
-    # If any pitch bend is > 0.1, we might set pitch bend range
+    # Pitch bend range if any pitch bend events > 0.1 exist.
     if any(pb["pitch"] > 0.1 for pb in preset.get("pitch_bends", [])):
         preset["settings"]["pitch_bend_range"] = 12
 
+    print("\n🔍 Debug: Final modulations:")
+    if "modulations" not in preset:
+        preset["modulations"] = []
+    print(json.dumps(preset["modulations"], indent=2))
 
-def replace_three_wavetables(json_data, frame_data_list):
+
+def replace_three_wavetables(json_data: str, frame_data_list: List[str]) -> str:
     """
-    Find the first 3 "wave_data" fields in the JSON, replace them with the
-    provided base64-encoded frames, and return the modified JSON string.
+    Finds the first 3 "wave_data" fields in the JSON, replaces them with the
+    provided base64-encoded frames, and returns the modified JSON string.
+    
+    Args:
+        json_data (str): The JSON string containing the preset data.
+        frame_data_list (List[str]): A list of 3 base64-encoded wavetable frames.
+        
+    Returns:
+        str: The modified JSON string with the replaced "wave_data" entries.
     """
     pattern = r'"wave_data"\s*:\s*"[^"]*"'
     matches = list(re.finditer(pattern, json_data))
@@ -897,7 +918,7 @@ def replace_three_wavetables(json_data, frame_data_list):
         start, end = matches[i].span()
         replacement = f'"wave_data": "{frame_data_list[i]}"'
         result = result[:start] + replacement + result[end:]
-
+    
     print(f"✅ Replaced wave_data in {replace_count} place(s).")
     return result
 
@@ -974,23 +995,55 @@ def apply_full_oscillator_params_to_preset(preset: Dict[str, Any], midi_data: Di
     logging.info("✅ Full dynamic oscillator parameters applied based on MIDI data.")
 
 
-def modify_vital_preset(vital_preset, midi_file, snapshot_method="1"):
+def apply_macro_controls_to_preset(preset: Dict[str, Any], cc_map: Dict[int, float]) -> None:
     """
-    High-level function that modifies a Vital preset with MIDI data
-    (notes, CCs, pitch bends, etc.) and returns the updated preset plus
-    the generated wavetable frame data.
+    Apply macros with meaningful modulation in the preset matrix.
     """
-    import copy, os, logging
-    from midi_parser import parse_midi
-    # Ensure helper functions are available:
-    # update_settings, apply_cc_modulations, apply_dynamic_env_to_preset,
-    # generate_three_frame_wavetables, build_lfo_from_cc,
-    # apply_filters_to_preset, apply_effects_to_preset, enable_sample_in_preset,
-    # compute_midi_stats, derive_full_oscillator_params, apply_full_oscillator_params_to_preset
+    preset.setdefault("modulations", [])
+    
+    # Apply sensible default macro values if CC not provided
+    macros = {
+        "macro_control_1": cc_map.get(20, 0.5),  # Macro 1 - Filter Cutoff
+        "macro_control_2": cc_map.get(21, 0.5),  # Macro 2 - Distortion
+        "macro_control_3": cc_map.get(22, 0.5),  # Macro 3 - Reverb
+        "macro_control_4": cc_map.get(23, 0.5),  # Macro 4 - Chorus
+    }
+    
+    preset.update(macros)
+    
+    # Define modulations clearly in modulation matrix
+    preset["modulations"].extend([
+        {"source": "macro_control_1", "destination": "filter_1_cutoff", "amount": 0.8},
+        {"source": "macro_control_1", "destination": "osc_1_frame", "amount": 0.4},  # example additional modulation
+        {"source": "macro_control_2", "destination": "distortion_drive", "amount": 0.7},
+        {"source": "macro_control_2", "destination": "filter_2_resonance", "amount": 0.5},  # added complexity
+        {"source": "macro_control_3", "destination": "reverb_dry_wet", "amount": 0.6},
+        {"source": "macro_control_3", "destination": "delay_feedback", "amount": 0.4},  # additional effect modulation
+        {"source": "macro_control_4", "destination": "chorus_dry_wet", "amount": 0.5},
+        {"source": "macro_control_4", "destination": "phaser_feedback", "amount": 0.3},  # example extra modulation
+    ])
 
+    print("✅ Macro Controls applied with detailed modulations.")
+
+
+def modify_vital_preset(vital_preset: Dict[str, Any],
+                        midi_file: Any,
+                        snapshot_method: str = "1") -> Tuple[Dict[str, Any], List[str]]:
+    """
+    Modifies a Vital preset with MIDI data (notes, CCs, pitch bends, etc.)
+    and returns the updated preset along with generated wavetable frame data.
+    
+    Args:
+        vital_preset (Dict[str, Any]): The default Vital preset.
+        midi_file (Any): Path to a MIDI file or already parsed MIDI data as a dict.
+        snapshot_method (str, optional): Snapshot method ("1", "2", or "3").
+        
+    Returns:
+        Tuple[Dict[str, Any], List[str]]: The modified preset and a list of wavetable frame data.
+    """
     logging.info(f"🔍 Debug: Received midi_file of type {type(midi_file)}")
     
-    # 1) Parse MIDI data: either from an existing dict or a file path
+    # 1) Parse MIDI data
     try:
         if isinstance(midi_file, dict):
             logging.warning("⚠️ Using existing parsed MIDI data instead of a file path.")
@@ -1003,55 +1056,51 @@ def modify_vital_preset(vital_preset, midi_file, snapshot_method="1"):
     except Exception as e:
         logging.error(f"❌ Error parsing MIDI: {e}")
         midi_data = {"notes": [], "control_changes": [], "pitch_bends": []}
-
-    # 2) Deep-copy the preset so the original is not mutated
-    modified = copy.deepcopy(vital_preset)
-
+    
+    # 2) Deep-copy the preset so as not to mutate the original
+    modified: Dict[str, Any] = copy.deepcopy(vital_preset)
+    
     # Extract MIDI components
-    notes = midi_data.get("notes", [])
-    ccs = midi_data.get("control_changes", [])
-    pitch_bends = midi_data.get("pitch_bends", [])
-
-    # Ensure "settings" exists
+    notes: List[Dict[str, Any]] = midi_data.get("notes", [])
+    ccs: List[Dict[str, Any]] = midi_data.get("control_changes", [])
+    pitch_bends: List[Dict[str, Any]] = midi_data.get("pitch_bends", [])
+    
     modified.setdefault("settings", {})
-
+    
     # 3) Snapshot method: update osc1 pitch/level based on chosen method
     update_settings(modified, notes, snapshot_method)
-
+    
     # 4) Apply CC-based direct parameter mappings
-    cc_map = {cc["controller"]: cc["value"] / 127.0 for cc in ccs}
+    cc_map: Dict[int, float] = {cc["controller"]: cc["value"] / 127.0 for cc in ccs}
     apply_cc_modulations(modified, cc_map)
-
+    
     # 5) Set pitch bend (final pitch wheel value)
     modified["pitch_wheel"] = pitch_bends[-1]["pitch"] / 8192.0 if pitch_bends else 0.0
-
+    
     # 6) Apply dynamic envelopes based on MIDI note data
     apply_dynamic_env_to_preset(modified, midi_data)
-
-    # ✅ Debug: Log final envelope values
     logging.info("\n🔍 **Final Envelope Values in Modified Preset:**")
     for env in ["env_1", "env_2", "env_3"]:
         logging.info(f"  {env}_attack: {modified.get(f'{env}_attack', 'N/A')}")
         logging.info(f"  {env}_decay: {modified.get(f'{env}_decay', 'N/A')}")
         logging.info(f"  {env}_sustain: {modified.get(f'{env}_sustain', 'N/A')}")
         logging.info(f"  {env}_release: {modified.get(f'{env}_release', 'N/A')}")
-
+    
     # 7) Apply dynamic oscillator settings based on MIDI data.
-    # This uses compute_midi_stats and derive_full_oscillator_params to set parameters like unison voices, detune, phase, tune, etc.
     apply_full_oscillator_params_to_preset(modified, midi_data)
-
+    
     # 8) Generate three wavetable frames
-    frame_data = generate_three_frame_wavetables(midi_data, num_frames=3, frame_size=2048)
-
+    frame_data: List[str] = generate_three_frame_wavetables(midi_data, num_frames=3, frame_size=2048)
+    
     # 9) Enable oscillators based on note count
-    num_notes = len(notes)
+    num_notes: int = len(notes)
     modified["settings"]["osc_1_on"] = 1.0 if num_notes > 0 else 0.0
     modified["settings"]["osc_2_on"] = 1.0 if num_notes > 1 else 0.0
     modified["settings"]["osc_3_on"] = 1.0 if num_notes > 2 else 0.0
-
+    
     # 10) Enable Sample Oscillator if specific MIDI CCs are present
-    SMP_CCS = {31, 39, 40, 74, 85, 86}  # List of CCs that trigger the sample oscillator
-    smp_detected = [cc for cc in SMP_CCS if cc in cc_map and cc_map[cc] > 0.01]
+    SMP_CCS: set[int] = {31, 39, 40, 74, 85, 86}
+    smp_detected: List[int] = [cc for cc in SMP_CCS if cc in cc_map and cc_map[cc] > 0.01]
     if smp_detected:
         modified["settings"]["sample_on"] = 1.0
         logging.info(f"✅ Enabling SMP (Sample Oscillator) due to MIDI CCs: {smp_detected}.")
@@ -1059,19 +1108,19 @@ def modify_vital_preset(vital_preset, midi_file, snapshot_method="1"):
     else:
         modified["settings"]["sample_on"] = 0.0
         logging.info("❌ SMP NOT Enabled.")
-
-    # 11) Apply filters using the updated, modular function
+    
+    # 11) Apply filters using the modular function
     apply_filters_to_preset(modified, cc_map)
-
+    
     # 12) Apply effects using the modular function
     apply_effects_to_preset(modified, cc_map)
-
+    
     # 13) Apply LFO modulations (each with unique rate/depth settings)
     build_lfo_from_cc(modified, midi_data, lfo_idx=1, destination="filter_1_cutoff")
     build_lfo_from_cc(modified, midi_data, lfo_idx=2, destination="osc_1_pitch", one_shot=True)
     build_lfo_from_cc(modified, midi_data, lfo_idx=3, destination="volume")
     build_lfo_from_cc(modified, midi_data, lfo_idx=4, destination="filter_2_resonance")
-
+    
     # 14) Append envelope modulations
     modified.setdefault("modulations", [])
     modified["modulations"].append({
@@ -1084,14 +1133,14 @@ def modify_vital_preset(vital_preset, midi_file, snapshot_method="1"):
         "destination": "osc_1_warp",
         "amount": 0.6
     })
-
+    
     # 15) Apply generated wavetable frames to the first oscillator keyframes
     if "groups" in modified and modified["groups"]:
         group0 = modified["groups"][0]
         if "components" in group0 and group0["components"]:
             component0 = group0["components"][0]
             if "keyframes" in component0:
-                keyframes = component0["keyframes"]
+                keyframes: List[Dict[str, Any]] = component0["keyframes"]
                 while len(keyframes) < 3:
                     keyframes.append({
                         "position": 0.0,
@@ -1102,14 +1151,16 @@ def modify_vital_preset(vital_preset, midi_file, snapshot_method="1"):
                     keyframes[i]["wave_data"] = frame_data[i]
                     keyframes[i]["wave_source"] = {"type": "sample"}
                 component0["name"] = "Generated Wavetable"
-
+    
     # 16) Update the preset name based on the MIDI file name
     if "preset_name" in modified:
-        midi_base_name = os.path.splitext(os.path.basename(midi_file))[0] if isinstance(midi_file, str) else "Custom_Preset"
+        midi_base_name: str = (os.path.splitext(os.path.basename(midi_file))[0]
+                               if isinstance(midi_file, str)
+                               else "Custom_Preset")
         modified["preset_name"] = f"Generated from {midi_base_name}"
-
+    
     # 17) Rename the first three occurrences of "Init" to descriptive names
-    def replace_init_names(obj, replacement_names, count=[0]):
+    def replace_init_names(obj: Any, replacement_names: List[str], count: List[int] = [0]) -> None:
         if isinstance(obj, dict):
             for key, value in obj.items():
                 if key == "name" and value == "Init" and count[0] < 3:
@@ -1121,88 +1172,61 @@ def modify_vital_preset(vital_preset, midi_file, snapshot_method="1"):
             for item in obj:
                 replace_init_names(item, replacement_names, count)
     replace_init_names(modified, ["Attack Phase", "Harmonic Blend", "Final Release"])
+    
+    # 18) Apply Macro Controls based on MIDI CC
+    apply_macro_controls_to_preset(modified, cc_map)
 
-    logging.info("✅ Finished applying wavetables, envelopes, LFOs, filters, effects, sample oscillator, and custom oscillator settings.")
+    logging.info("✅ Finished applying wavetables, envelopes, LFOs, filters, effects, sample oscillator, macro controls, and custom oscillator settings.")
     return modified, frame_data
 
 
-def get_preset_filename(midi_path):
+def get_preset_filename(midi_path: str) -> str:
     """
     Extracts the base name from the MIDI file and ensures it has a .vital extension.
+    
+    Args:
+        midi_path (str): The MIDI file path.
+    
+    Returns:
+        str: The generated preset filename with a .vital extension.
     """
-    base_name = os.path.splitext(os.path.basename(midi_path))[0]
+    base_name: str = os.path.splitext(os.path.basename(midi_path))[0]
     return f"{base_name}.vital"
 
 
-def save_vital_preset(vital_preset, midi_path, frame_data_list=None):
+def save_vital_preset(vital_preset: Dict[str, Any],
+                      midi_path: str,
+                      frame_data_list: Optional[List[str]] = None) -> Optional[str]:
     """
-    Saves the modified Vital preset as an uncompressed JSON file
-    named after the MIDI file (but with a .vital extension).
+    Saves the modified Vital preset as an uncompressed JSON file named after the MIDI file (with a .vital extension).
     
     Args:
-        vital_preset (dict): The modified Vital preset data.
+        vital_preset (Dict[str, Any]): The modified Vital preset data.
         midi_path (str): The path to the original MIDI file.
-        frame_data_list (list): Optional list of three wavetables (base64 strings).
+        frame_data_list (Optional[List[str]]): Optional list of 3 wavetable frames (base64 strings).
     
     Returns:
-        str: The output file path if successful, None otherwise.
+        Optional[str]: The output file path if successful, None otherwise.
     """
     try:
-        # Generate the output path based on MIDI file name
-        output_path = os.path.join(OUTPUT_DIR, get_preset_filename(midi_path))
+        output_path: str = os.path.join(OUTPUT_DIR, get_preset_filename(midi_path))
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
-
-        # Ensure "modulations" key exists
         vital_preset.setdefault("modulations", [])
-
-        # Convert the preset to JSON format
-        json_data = json.dumps(vital_preset, indent=2)
-
-        # If valid wavetables are provided, replace them
+        json_data: str = json.dumps(vital_preset, indent=2)
         if isinstance(frame_data_list, list) and len(frame_data_list) == 3:
             json_data = replace_three_wavetables(json_data, frame_data_list)
             logging.info("✅ Replaced wavetables in the preset.")
         else:
             logging.warning("⚠️ No valid wave_data provided or not exactly 3 frames.")
-
-        # Write the preset to file
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(json_data)
-
         logging.info(f"✅ Successfully saved Vital preset as JSON: {output_path}")
-        return output_path  # Return the path for reference
-
+        return output_path
     except OSError as e:
         logging.error(f"❌ File error when saving Vital preset: {e}")
     except json.JSONDecodeError as e:
         logging.error(f"❌ JSON encoding error: {e}")
     except Exception as e:
         logging.error(f"❌ Unexpected error in save_vital_preset: {e}")
-
     return None
 
-
-def apply_macro_controls_to_preset(preset, cc_map):
-    """
-    Maps MIDI CCs (20-23) => Macro Controls (1-4), then assigns some example macro modulations.
-    """
-    print("🔹 Applying Macro Controls to preset...")
-
-    for i in range(1, 5):  # Macro 1..4
-        macro_key = f"macro_control_{i}"
-        midi_cc = 19 + i  # e.g. CC20 => Macro1, CC21 => Macro2, ...
-        preset[macro_key] = cc_map.get(midi_cc, 0.5)  # default 0.5
-
-    macro_mods = [
-        {"source": "macro_control_1", "destination": "filter_1_cutoff",   "amount": 0.8},
-        {"source": "macro_control_2", "destination": "distortion_drive",  "amount": 0.6},
-        {"source": "macro_control_3", "destination": "reverb_dry_wet",    "amount": 0.7},
-        {"source": "macro_control_4", "destination": "chorus_dry_wet",    "amount": 0.5}
-    ]
-
-    if "modulations" not in preset:
-        preset["modulations"] = []
-    preset["modulations"].extend(macro_mods)
-
-    print("✅ Macro Controls applied successfully!")
- 
