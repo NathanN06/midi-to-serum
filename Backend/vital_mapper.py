@@ -47,7 +47,7 @@ from config import (
     ENV2_DECAY_SCALE, 
     ENV2_SUSTAIN_SCALE, 
     ENV2_RELEASE_SCALE,
-    
+
     ENV_ATTACK_MIN,
     ENV_ATTACK_MAX,
     ENV_DECAY_MIN,

@@ -1,4 +1,13 @@
 import pretty_midi
+import logging
+import traceback
+from config import DEFAULT_ADSR
+
+# Configure logging (only if not already configured elsewhere)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
 
 def parse_midi(file_path):
     """
@@ -46,7 +55,7 @@ def parse_midi(file_path):
         control_changes = [
             {
                 "controller": cc.number,
-                "value": cc.value / 127.0,  # Normalize CC values to 0-1
+                "value": cc.value / 127.0,
                 "time": cc.time
             }
             for instrument in midi_data.instruments
@@ -63,12 +72,12 @@ def parse_midi(file_path):
             for pb in instrument.pitch_bends
         ]
 
-        # Compute average ADSR for the preset (fallback values)
+        # Compute average ADSR for the preset
         adsr = {
-            "attack": sum(attack_times) / len(attack_times) if attack_times else 0.01,
-            "decay": sum(decay_times) / len(decay_times) if decay_times else 0.1,
-            "sustain": sum(sustain_levels) / len(sustain_levels) if sustain_levels else 0.8,
-            "release": sum(release_times) / len(release_times) if release_times else 0.3
+            "attack": sum(attack_times) / len(attack_times) if attack_times else DEFAULT_ADSR["attack"],
+            "decay": sum(decay_times) / len(decay_times) if decay_times else DEFAULT_ADSR["decay"],
+            "sustain": sum(sustain_levels) / len(sustain_levels) if sustain_levels else DEFAULT_ADSR["sustain"],
+            "release": sum(release_times) / len(release_times) if release_times else DEFAULT_ADSR["release"]
         }
 
         return {
@@ -76,15 +85,16 @@ def parse_midi(file_path):
             "notes": notes,
             "control_changes": control_changes,
             "pitch_bends": pitch_bends,
-            "adsr": adsr  # ✅ Include overall ADSR
+            "adsr": adsr
         }
 
     except Exception as e:
-        print(f"❌ Error parsing MIDI file: {e}")
+        logging.error(f"Error parsing MIDI file '{file_path}': {e}")
+        logging.debug(traceback.format_exc())
         return {
             "tempo": None,
             "notes": [],
             "control_changes": [],
             "pitch_bends": [],
-            "adsr": {"attack": 0.01, "decay": 0.1, "sustain": 0.8, "release": 0.3}  # Default fallback
+            "adsr": DEFAULT_ADSR
         }

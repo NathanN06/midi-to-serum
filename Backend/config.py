@@ -215,3 +215,15 @@ ENV_RELEASE_MAX: float = 32.0
 ENV_DELAY_MAX: float = 4.0
 ENV_HOLD_MIN: float = 0.4
 ENV_HOLD_MAX: float = 1.0
+
+
+# config.py
+
+# Default output filename for the generated Vital preset
+DEFAULT_OUTPUT_FILENAME = "output.vital"
+
+# Snapshot method options
+SNAPSHOT_METHODS = {"1", "2", "3"}
+
+# Error message for invalid snapshot method input
+SNAPSHOT_ERROR_MESSAGE = "⚠️ Invalid input! Please enter 1, 2, or 3, or 'q' to quit."

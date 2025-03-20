@@ -5,7 +5,10 @@ import logging
 # Import configuration from the current directory (Backend)
 from config import (
     DEFAULT_VITAL_PRESET_FILENAME,
-    PRESETS_DIR
+    PRESETS_DIR,
+    DEFAULT_OUTPUT_FILENAME,
+    SNAPSHOT_METHODS,
+    SNAPSHOT_ERROR_MESSAGE
 )
 
 # Configure logging
@@ -45,8 +48,6 @@ def get_snapshot_method():
     """
     Prompts the user to select a snapshot method, ensuring valid input.
     """
-    valid_options = {"1", "2", "3"}
-    
     while True:
         print("\nChoose a snapshot method:")
         print("1: Use first note")
@@ -56,13 +57,15 @@ def get_snapshot_method():
         user_input = input("Enter 1, 2, or 3 (or 'q' to quit): ").strip()
 
         if user_input.lower() == "q":
-            print("❌ Exiting snapshot selection.")
-            return None  # User wants to quit
+            logging.info("User exited snapshot method selection.")
+            return None  # Graceful exit
 
-        if user_input in valid_options:
-            return user_input  # Return valid choice
+        if user_input not in SNAPSHOT_METHODS:
+            logging.error(f"Invalid snapshot method selected: '{user_input}'")
+            print(SNAPSHOT_ERROR_MESSAGE)
+            continue
 
-        print("⚠️ Invalid input! Please enter 1, 2, or 3.")
+        return user_input  # Return valid choice
 
 
 ### Modular Functions
@@ -71,19 +74,36 @@ def get_user_inputs():
     Collect user inputs: MIDI file path, output path, and snapshot method (for Vital).
     """
     # MIDI file path
-    midi_file = input("🎵 Enter the path to the MIDI file: ").strip()
-    while not os.path.isfile(midi_file):
-        logging.error("The specified MIDI file does not exist.")
+    while True:
         midi_file = input("🎵 Enter the path to the MIDI file: ").strip()
+        if os.path.isfile(midi_file):
+            break
+        logging.error(f"The specified MIDI file '{midi_file}' does not exist. Please try again.")
+        print("⚠️ The MIDI file path provided is invalid or does not exist.")
 
     # Output path with default filename if necessary
     output_path = input("💾 Enter the output path for the Vital preset file (including filename): ").strip()
+
+    # Check if provided path is a directory
     if os.path.isdir(output_path):
-        output_path = os.path.join(output_path, "output.vital")
+        output_path = os.path.join(output_path, DEFAULT_OUTPUT_FILENAME)
         logging.info(f"No file name provided. Defaulting to: {output_path}")
+    else:
+        # Ensure the directory of the output path exists
+        output_dir = os.path.dirname(output_path)
+        if output_dir and not os.path.exists(output_dir):
+            try:
+                os.makedirs(output_dir, exist_ok=True)
+                logging.info(f"Output directory '{output_dir}' created successfully.")
+            except OSError as e:
+                logging.error(f"Failed to create output directory '{output_dir}': {e}")
+                raise
 
     # Snapshot method for Vital
     snapshot_method = get_snapshot_method()
+    if snapshot_method is None:
+        logging.info("Snapshot method selection was cancelled by the user.")
+        raise SystemExit("User cancelled the snapshot selection. Exiting program.")
 
     return midi_file, output_path, snapshot_method
 
