@@ -11,32 +11,22 @@ import os
 import logging
 from midi_analysis import compute_midi_stats
 from midi_parser import parse_midi
+import random
+import math  
 
 
 # Local imports
 
 from config import (
+    # MIDI Mappings & Defaults
     MIDI_TO_VITAL_MAP,
-    DEFAULT_ADSR,
-    DEFAULT_WAVEFORM,
-    HARMONIC_SCALING,
-    OUTPUT_DIR,
+    MIDI_PITCH_REFERENCE,
+    DEFAULT_PITCH_REFERENCE,
+    DEFAULT_OSC_1_TRANSPOSE,
+    DEFAULT_OSC_1_LEVEL,
 
-    DEFAULT_DETUNE_POWER,
-    DEFAULT_UNISON_BLEND,
-    DEFAULT_RANDOM_PHASE,
-    DEFAULT_STACK_STYLE,
-    DEFAULT_STEREO_SPREAD,
-    DEFAULT_SPECTRAL_MORPH_AMOUNT,
-    MAX_UNISON_VOICES,
-    DEFAULT_KEYFRAMES,
-    DEFAULT_WAVE_DATA,
-    DEFAULT_LFO_POINTS,
-    LFO_RATE_MULTIPLIER,
-    LFO_DEPTH_MIN,
-    LFO_DEPTH_MULTIPLIER,
-    DEFAULT_LFO_TEMPO_OPTIONS,
-    DEFAULT_LFO_SYNC,
+    # ADSR & Envelope Settings
+    DEFAULT_ADSR,
     ENVELOPE_ATTACK_MULTIPLIER, 
     ENVELOPE_ATTACK_MAX,
     ENVELOPE_DECAY_MULTIPLIER, 
@@ -47,7 +37,6 @@ from config import (
     ENV2_DECAY_SCALE, 
     ENV2_SUSTAIN_SCALE, 
     ENV2_RELEASE_SCALE,
-
     ENV_ATTACK_MIN,
     ENV_ATTACK_MAX,
     ENV_DECAY_MIN,
@@ -56,8 +45,66 @@ from config import (
     ENV_RELEASE_MAX,
     ENV_DELAY_MAX,
     ENV_HOLD_MIN,
-    ENV_HOLD_MAX
+    ENV_HOLD_MAX,
+
+    # Wavetable & Harmonics
+    DEFAULT_NUM_WAVETABLE_FRAMES,
+    DEFAULT_FRAME_SIZE,
+    DEFAULT_WAVEFORM,
+    DEFAULT_WAVEFORM_TYPE,
+    HARMONIC_SCALING,
+    DEFAULT_MIN_HARMONICS,
+    DEFAULT_MAX_HARMONICS,
+    DEFAULT_PHASE_DISTORTION,
+    DEFAULT_PHASE_DISTORTION_AMOUNT,
+    TRIANGLE_BLEND_RATIO,
+    SAW_BLEND_RATIO,
+
+    # FM Synthesis
+    FM_MOD_INDEX,
+    FM_MOD_FREQ_BASE,
+    FM_MOD_FREQ_RANGE,
+
+    # Unison, Stereo & Oscillator Defaults
+    DEFAULT_DETUNE_POWER,
+    DEFAULT_UNISON_BLEND,
+    DEFAULT_RANDOM_PHASE,
+    DEFAULT_STACK_STYLE,
+    DEFAULT_STEREO_SPREAD,
+    DEFAULT_SPECTRAL_MORPH_AMOUNT,
+    MAX_UNISON_VOICES,
+    DEFAULT_KEYFRAMES,
+    DEFAULT_WAVE_DATA,
+
+    # LFO Settings
+    DEFAULT_LFO_POINTS,
+    LFO_RATE_MULTIPLIER,
+    LFO_DEPTH_MIN,
+    LFO_DEPTH_MULTIPLIER,
+    DEFAULT_LFO_TEMPO_OPTIONS,
+    DEFAULT_LFO_SYNC,
+
+    # Effect Thresholds & Parameter Mapping
+    EFFECT_ENABLE_THRESHOLD, 
+    EFFECTS_CC_MAP, 
+    EFFECTS_PARAM_MAP,
+
+    # File Paths & Extensions
+    OUTPUT_DIR,
+    PRESET_FILE_EXTENSION,
+
+    FILTER_2_CUTOFF_CC,
+    FILTER_2_RESONANCE_CC,
+    FILTER_1_RESONANCE_CC,
+    MIN_FILTER_FREQ,
+    MAX_FILTER_FREQ,
+    FILTER_1_CUTOFF_CC,
+    FILTER_1_CC_NUMBERS,
+    FILTER_2_CC_NUMBERS
 )
+
+
+
 
 
 from typing import Any, Dict, List, Optional, Tuple
@@ -157,11 +204,13 @@ def build_lfo_from_cc(preset: Dict[str, Any],
     # Ensure "settings" and "lfos" exist
     preset.setdefault("settings", {})
     preset["settings"].setdefault("lfos", [])
+    
+    # Expand the list to include at least `lfo_idx` LFOs, setting default values
     while len(preset["settings"]["lfos"]) < lfo_idx:
         preset["settings"]["lfos"].append({
             "name": f"LFO {len(preset['settings']['lfos']) + 1}",
-            "num_points": 2,
-            "points": [0.0, 1.0, 1.0, 0.0],
+            "num_points": DEFAULT_LFO_POINTS,  # Updated from hardcoded 2
+            "points": [0.0, 1.0, 1.0, 0.0],  # Still basic, could be configurable
             "powers": [0.0, 0.0],
             "smooth": False
         })
@@ -192,7 +241,7 @@ def build_lfo_from_cc(preset: Dict[str, Any],
     # Set dynamic speed and synchronization settings
     preset["settings"][f"lfo_{lfo_idx}_frequency"] = lfo_rate_scaled
     preset["settings"][f"lfo_{lfo_idx}_sync"] = DEFAULT_LFO_SYNC
-    preset["settings"][f"lfo_{lfo_idx}_tempo"] = np.random.choice(DEFAULT_LFO_TEMPO_OPTIONS)
+    preset["settings"][f"lfo_{lfo_idx}_tempo"] = random.choice(DEFAULT_LFO_TEMPO_OPTIONS)  # Replaced `numpy` random choice
 
     # Apply one-shot mode if requested
     if one_shot:
@@ -447,13 +496,12 @@ def apply_dynamic_env_to_preset(preset: Dict[str, Any], midi_data: Dict[str, Any
     print("✅ Envelope modulations added: ENV2 → Filter, ENV3 → Warp")
 
 
-
 def apply_filters_to_preset(preset: Dict[str, Any], cc_map: Dict[int, float]) -> None:
     """
     Enables and configures Filter 1 & 2 based on MIDI CC data.
     Maps cutoff and resonance values from CCs using a logarithmic scale mapping
-    from 20 Hz to 20 kHz, and writes parameters under preset["filters"].
-    
+    from MIN_FILTER_FREQ to MAX_FILTER_FREQ, and writes parameters under preset["filters"].
+
     Args:
         preset (Dict[str, Any]): The Vital preset dictionary.
         cc_map (Dict[int, float]): Mapping of MIDI CC numbers to normalized values (0.0–1.0).
@@ -465,41 +513,37 @@ def apply_filters_to_preset(preset: Dict[str, Any], cc_map: Dict[int, float]) ->
     def scale_cutoff(cc_value: float) -> float:
         """
         Maps a normalized CC value (0.0–1.0) to a normalized frequency value using an exponential mapping.
-        
+
         Args:
             cc_value (float): The normalized CC value.
-            
+
         Returns:
             float: The normalized frequency value (0.0–1.0).
         """
-        min_freq: float = 20.0
-        max_freq: float = 20000.0
-        freq: float = min_freq * (max_freq / min_freq) ** cc_value
-        normalized: float = (math.log(freq) - math.log(min_freq)) / (math.log(max_freq) - math.log(min_freq))
+        freq: float = MIN_FILTER_FREQ * (MAX_FILTER_FREQ / MIN_FILTER_FREQ) ** cc_value
+        normalized: float = (math.log(freq) - math.log(MIN_FILTER_FREQ)) / (math.log(MAX_FILTER_FREQ) - math.log(MIN_FILTER_FREQ))
         return max(0.0, min(1.0, normalized))
 
-    # Filter 1 (CC 74 & 102 for cutoff, 71 for resonance)
-    filter_1_ccs: set[int] = {74, 71, 102}
-    filter_1_detected: List[int] = [cc for cc in filter_1_ccs if cc in cc_map and cc_map[cc] >= 0.01]
+    # Filter 1 (Cutoff: CC74 & CC102, Resonance: CC71)
+    filter_1_detected: List[int] = [cc for cc in FILTER_1_CC_NUMBERS if cc in cc_map and cc_map[cc] >= EFFECT_ENABLE_THRESHOLD]
     if filter_1_detected:
         preset["filters"]["filter_1"]["enabled"] = True
         for cc in filter_1_detected:
-            if cc in {74, 102}:
+            if cc in FILTER_1_CUTOFF_CC:
                 preset["filters"]["filter_1"]["cutoff"] = scale_cutoff(cc_map[cc])
-            elif cc == 71:
+            elif cc in FILTER_1_RESONANCE_CC:
                 preset["filters"]["filter_1"]["resonance"] = cc_map[cc]
     else:
         preset["filters"]["filter_1"]["enabled"] = False
 
-    # Filter 2 (CC 85 & 103 for cutoff; 86 & 104 for resonance)
-    filter_2_ccs: set[int] = {85, 86, 103, 104}
-    filter_2_detected: List[int] = [cc for cc in filter_2_ccs if cc in cc_map and cc_map[cc] >= 0.01]
+    # Filter 2 (Cutoff: CC85 & CC103, Resonance: CC86 & CC104)
+    filter_2_detected: List[int] = [cc for cc in FILTER_2_CC_NUMBERS if cc in cc_map and cc_map[cc] >= EFFECT_ENABLE_THRESHOLD]
     if filter_2_detected:
         preset["filters"]["filter_2"]["enabled"] = True
         for cc in filter_2_detected:
-            if cc in {85, 103}:
+            if cc in FILTER_2_CUTOFF_CC:
                 preset["filters"]["filter_2"]["cutoff"] = scale_cutoff(cc_map[cc])
-            elif cc in {86, 104}:
+            elif cc in FILTER_2_RESONANCE_CC:
                 preset["filters"]["filter_2"]["resonance"] = cc_map[cc]
     else:
         preset["filters"]["filter_2"]["enabled"] = False
@@ -511,75 +555,21 @@ def apply_filters_to_preset(preset: Dict[str, Any], cc_map: Dict[int, float]) ->
 def apply_effects_to_preset(preset: Dict[str, Any], cc_map: Dict[int, float]) -> None:
     """
     Applies MIDI CC-based effect settings to the preset by updating entries under preset["fx"].
-    
+
     Args:
         preset (Dict[str, Any]): The Vital preset dictionary.
         cc_map (Dict[int, float]): Mapping of MIDI CC numbers to normalized values.
     """
     preset.setdefault("fx", {})
 
-    # Reverb (CC 91)
-    if 91 in cc_map and cc_map[91] > 0.1:
-        preset["fx"].setdefault("reverb", {})
-        preset["fx"]["reverb"]["enabled"] = True
-        preset["fx"]["reverb"]["dry_wet"] = cc_map[91]
-    else:
-        if "reverb" in preset["fx"]:
-            preset["fx"]["reverb"]["enabled"] = False
-
-    # Chorus (CC 93)
-    if 93 in cc_map and cc_map[93] > 0.1:
-        preset["fx"].setdefault("chorus", {})
-        preset["fx"]["chorus"]["enabled"] = True
-        preset["fx"]["chorus"]["dry_wet"] = cc_map[93]
-    else:
-        if "chorus" in preset["fx"]:
-            preset["fx"]["chorus"]["enabled"] = False
-
-    # Delay (CC 94)
-    if 94 in cc_map and cc_map[94] > 0.1:
-        preset["fx"].setdefault("delay", {})
-        preset["fx"]["delay"]["enabled"] = True
-        preset["fx"]["delay"]["dry_wet"] = cc_map[94]
-    else:
-        if "delay" in preset["fx"]:
-            preset["fx"]["delay"]["enabled"] = False
-
-    # Phaser (CC 95)
-    if 95 in cc_map and cc_map[95] > 0.1:
-        preset["fx"].setdefault("phaser", {})
-        preset["fx"]["phaser"]["enabled"] = True
-        preset["fx"]["phaser"]["dry_wet"] = cc_map[95]
-    else:
-        if "phaser" in preset["fx"]:
-            preset["fx"]["phaser"]["enabled"] = False
-
-    # Distortion (CC 116)
-    if 116 in cc_map and cc_map[116] > 0.1:
-        preset["fx"].setdefault("distortion", {})
-        preset["fx"]["distortion"]["enabled"] = True
-        preset["fx"]["distortion"]["drive"] = cc_map[116]
-    else:
-        if "distortion" in preset["fx"]:
-            preset["fx"]["distortion"]["enabled"] = False
-
-    # Compressor (CC 117)
-    if 117 in cc_map and cc_map[117] > 0.1:
-        preset["fx"].setdefault("compressor", {})
-        preset["fx"]["compressor"]["enabled"] = True
-        preset["fx"]["compressor"]["amount"] = cc_map[117]
-    else:
-        if "compressor" in preset["fx"]:
-            preset["fx"]["compressor"]["enabled"] = False
-
-    # Flanger (CC 119)
-    if 119 in cc_map and cc_map[119] > 0.1:
-        preset["fx"].setdefault("flanger", {})
-        preset["fx"]["flanger"]["enabled"] = True
-        preset["fx"]["flanger"]["dry_wet"] = cc_map[119]
-    else:
-        if "flanger" in preset["fx"]:
-            preset["fx"]["flanger"]["enabled"] = False
+    for effect, cc in EFFECTS_CC_MAP.items():
+        if cc in cc_map and cc_map[cc] > EFFECT_ENABLE_THRESHOLD:
+            preset["fx"].setdefault(effect, {})
+            preset["fx"][effect]["enabled"] = True
+            preset["fx"][effect][EFFECTS_PARAM_MAP[effect]] = cc_map[cc]
+        else:
+            if effect in preset["fx"]:
+                preset["fx"][effect]["enabled"] = False
 
 
 def set_vital_parameter(preset: Dict[str, Any], param_name: str, value: Any) -> None:
@@ -631,7 +621,7 @@ def update_settings(modified_preset: Dict[str, Any], notes: List[Dict[str, Any]]
     """
     Sets Oscillator 1 transpose/level based on the chosen snapshot method:
       1 = first note, 2 = average note, 3 = single user-specified time.
-    
+
     Args:
         modified_preset (Dict[str, Any]): The preset dictionary to update.
         notes (List[Dict[str, Any]]): List of MIDI note dictionaries.
@@ -640,21 +630,21 @@ def update_settings(modified_preset: Dict[str, Any], notes: List[Dict[str, Any]]
     if snapshot_method == "1":
         if notes:
             note = notes[0]
-            modified_preset["osc_1_transpose"] = note["pitch"] - 69
+            modified_preset["osc_1_transpose"] = note["pitch"] - MIDI_PITCH_REFERENCE
             modified_preset["osc_1_level"] = note["velocity"] / 127.0
         else:
-            modified_preset["osc_1_transpose"] = 0
-            modified_preset["osc_1_level"] = 0.5
+            modified_preset["osc_1_transpose"] = DEFAULT_OSC_1_TRANSPOSE
+            modified_preset["osc_1_level"] = DEFAULT_OSC_1_LEVEL
 
     elif snapshot_method == "2":
         if notes:
             avg_pitch = sum(n["pitch"] for n in notes) / len(notes)
             avg_vel = sum(n["velocity"] for n in notes) / len(notes)
-            modified_preset["osc_1_transpose"] = avg_pitch - 69
+            modified_preset["osc_1_transpose"] = avg_pitch - MIDI_PITCH_REFERENCE
             modified_preset["osc_1_level"] = avg_vel / 127.0
         else:
-            modified_preset["osc_1_transpose"] = 0
-            modified_preset["osc_1_level"] = 0.5
+            modified_preset["osc_1_transpose"] = DEFAULT_OSC_1_TRANSPOSE
+            modified_preset["osc_1_level"] = DEFAULT_OSC_1_LEVEL
 
     elif snapshot_method == "3":
         try:
@@ -670,13 +660,12 @@ def update_settings(modified_preset: Dict[str, Any], notes: List[Dict[str, Any]]
                     chosen_note = n
                     break
         if chosen_note:
-            modified_preset["osc_1_transpose"] = chosen_note["pitch"] - 69
+            modified_preset["osc_1_transpose"] = chosen_note["pitch"] - MIDI_PITCH_REFERENCE
             modified_preset["osc_1_level"] = chosen_note["velocity"] / 127.0
         else:
             print("No note active at that time. Using default.")
-            modified_preset["osc_1_transpose"] = 0
-            modified_preset["osc_1_level"] = 0.5
-
+            modified_preset["osc_1_transpose"] = DEFAULT_OSC_1_TRANSPOSE
+            modified_preset["osc_1_level"] = DEFAULT_OSC_1_LEVEL
 
 def add_modulations(modified_preset: Dict[str, Any], ccs: List[Dict[str, Any]]) -> None:
     """
@@ -776,72 +765,80 @@ def generate_frame_waveform(midi_data: Dict[str, Any],
 
 
 def generate_three_frame_wavetables(midi_data: Dict[str, Any],
-                                    num_frames: int = 3,
-                                    frame_size: int = 2048) -> List[str]:
+                                    num_frames: int = DEFAULT_NUM_WAVETABLE_FRAMES,
+                                    frame_size: int = DEFAULT_FRAME_SIZE) -> List[str]:
     """
-    Generate 3 structured wavetable frames for Vital:
+    Generate structured wavetable frames for Vital:
     - Frame 1: Blended sine & saw (attack phase)
     - Frame 2: Complex harmonics + stronger FM synthesis (sustain phase)
     - Frame 3: Pulsating saw-triangle blend with deeper phase distortion (release phase)
-    
+
     Args:
         midi_data (Dict[str, Any]): Parsed MIDI data.
-        num_frames (int, optional): Number of frames to generate. Defaults to 3.
-        frame_size (int, optional): Frame size. Defaults to 2048.
-    
+        num_frames (int, optional): Number of frames to generate. Defaults to DEFAULT_NUM_WAVETABLE_FRAMES.
+        frame_size (int, optional): Frame size. Defaults to DEFAULT_FRAME_SIZE.
+
     Returns:
-        List[str]: A list of 3 base64-encoded wavetable frames.
+        List[str]: A list of base64-encoded wavetable frames.
     """
     import base64
+
+    # Extract MIDI notes and control changes
     notes: List[Dict[str, Any]] = midi_data.get("notes", [])
     ccs: Dict[int, float] = {cc["controller"]: cc["value"] / 127.0 for cc in midi_data.get("control_changes", [])}
-    
+
+    # Default to middle A (A4) if no notes exist
     if not notes:
-        notes = [{"pitch": 69, "velocity": 100}]
-    
+        notes = [{"pitch": DEFAULT_PITCH_REFERENCE, "velocity": 100}]
+
     first_note: Dict[str, Any] = notes[0]
     last_note: Dict[str, Any] = notes[-1]
     avg_pitch: float = sum(n["pitch"] for n in notes) / len(notes)
     avg_velocity: float = sum(n["velocity"] for n in notes) / len(notes)
-    
+
     frames: List[str] = []
     for i, note in enumerate([first_note, {"pitch": avg_pitch, "velocity": avg_velocity}, last_note]):
         pitch: float = note["pitch"]
         velocity: float = note["velocity"] / 127.0
 
         # Use CC1 (mod wheel) for harmonic boost.
-        harmonic_boost: float = HARMONIC_SCALING.get(DEFAULT_WAVEFORM, 1) * (ccs.get(1, 0.5) + 0.5)
-        
+        harmonic_boost: float = HARMONIC_SCALING.get(DEFAULT_WAVEFORM_TYPE, 1) * (ccs.get(1, 0.5) + 0.5)
+
+        # Generate phase array
         phase: np.ndarray = np.linspace(0, 2 * np.pi, frame_size, endpoint=False)
+
         if i == 0:
-            # Frame 1: Sine + bright saw blend for attack phase.
+            # **Frame 1: Sine + bright saw blend for attack phase**
             sine_wave = np.sin(phase) * velocity
-            saw_wave = np.sum([(1.0 / h) * np.sin(h * phase) for h in range(1, 8)], axis=0) * (velocity * 0.4)
+            saw_wave = np.sum([(1.0 / h) * np.sin(h * phase) for h in range(1, 8)], axis=0) * (velocity * SAW_BLEND_RATIO)
             waveform = sine_wave + saw_wave
+
         elif i == 1:
-            # Frame 2: Stronger FM synthesis for sustain.
-            mod_freq: float = 3.0 + 5.0 * velocity
-            mod_index: float = 0.7
-            fm_mod = np.sin(phase * mod_freq) * mod_index
-            max_harm: int = int(15 * harmonic_boost)
-            if max_harm < 1:
-                max_harm = 1
+            # **Frame 2: Stronger FM synthesis for sustain**
+            mod_freq: float = FM_MOD_FREQ_BASE + (FM_MOD_FREQ_RANGE * velocity)
+            fm_mod = np.sin(phase * mod_freq) * FM_MOD_INDEX
+            max_harm: int = int(DEFAULT_MAX_HARMONICS * harmonic_boost)
+            max_harm = max(DEFAULT_MIN_HARMONICS, max_harm)
+
             harmonics = np.sum([(1.0 / h) * np.sin(h * phase + fm_mod) for h in range(1, max_harm)], axis=0)
             waveform = harmonics * velocity
+
         else:
-            # Frame 3: Saw-triangle blend with phase distortion for release.
+            # **Frame 3: Saw-triangle blend with phase distortion for release**
             triangle_wave = np.abs(np.mod(phase / np.pi, 2) - 1) * 2 - 1
             saw_wave = np.sign(np.sin(phase * (pitch / 64.0))) * velocity
-            phase_distortion = np.sin(phase * 3.5) * 0.4
-            waveform = (triangle_wave * 0.6 + saw_wave * 0.4) + phase_distortion
+            phase_distortion = np.sin(phase * DEFAULT_PHASE_DISTORTION) * DEFAULT_PHASE_DISTORTION_AMOUNT
+            waveform = (triangle_wave * TRIANGLE_BLEND_RATIO + saw_wave * SAW_BLEND_RATIO) + phase_distortion
 
+        # Normalize waveform
         max_val: float = np.max(np.abs(waveform)) or 1.0
         waveform /= max_val
-        
+
+        # Encode to base64
         raw_bytes = waveform.astype(np.float32).tobytes()
         encoded = base64.b64encode(raw_bytes).decode("utf-8")
         frames.append(encoded)
-    
+
     return frames
 
 
@@ -1182,16 +1179,16 @@ def modify_vital_preset(vital_preset: Dict[str, Any],
 
 def get_preset_filename(midi_path: str) -> str:
     """
-    Extracts the base name from the MIDI file and ensures it has a .vital extension.
-    
+    Extracts the base name from the MIDI file and ensures it has the correct preset extension.
+
     Args:
         midi_path (str): The MIDI file path.
-    
+
     Returns:
-        str: The generated preset filename with a .vital extension.
+        str: The generated preset filename with the correct extension.
     """
     base_name: str = os.path.splitext(os.path.basename(midi_path))[0]
-    return f"{base_name}.vital"
+    return f"{base_name}{PRESET_FILE_EXTENSION}"
 
 
 def save_vital_preset(vital_preset: Dict[str, Any],

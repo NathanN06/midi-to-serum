@@ -4,6 +4,8 @@ import json
 import struct
 import os
 from config import MIDI_TO_VITAL_MAP
+from config import DEFAULT_SAMPLE_RATE, DEFAULT_SAMPLE_LENGTH, DEFAULT_SAMPLE_NAME
+
 
 ##########################################
 # (COMMENTED) Diva/Hive Preset Generation
@@ -96,9 +98,9 @@ def apply_sample_oscillator_to_preset(preset, midi_data):
         return
 
     preset["sample"] = {
-        "name": sample_info.get("name", "Unknown Sample"),
-        "sample_rate": sample_info.get("sample_rate", 44100),
-        "length": sample_info.get("length", 44100),
+        "name": sample_info.get("name", DEFAULT_SAMPLE_NAME),
+        "sample_rate": sample_info.get("sample_rate", DEFAULT_SAMPLE_RATE),
+        "length": sample_info.get("length", DEFAULT_SAMPLE_LENGTH),
         "samples": sample_info["samples"]
     }
 

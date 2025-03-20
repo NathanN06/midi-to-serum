@@ -227,3 +227,118 @@ SNAPSHOT_METHODS = {"1", "2", "3"}
 
 # Error message for invalid snapshot method input
 SNAPSHOT_ERROR_MESSAGE = "⚠️ Invalid input! Please enter 1, 2, or 3, or 'q' to quit."
+
+# Default fallback values for MIDI statistics
+DEFAULT_MIDI_STATS = {
+    "avg_pitch": 60.0,     # Middle C4
+    "avg_velocity": 0.7,   # Default normalized velocity
+    "pitch_range": 0.0,    # No range if no notes exist
+    "note_density": 1.0    # Assume at least one note per second
+}
+
+# Default frame settings
+DEFAULT_FRAME_COUNT = 3   # Default to 3 frames if no notes exist
+FRAME_SCALING_FACTOR = 10  # Scaling factor for estimating frame count
+
+# Default frame size for wavetables
+DEFAULT_FRAME_SIZE = 2048
+
+# Default Sample Settings
+DEFAULT_SAMPLE_RATE = 44100
+DEFAULT_SAMPLE_LENGTH = 44100
+DEFAULT_SAMPLE_NAME = "Unknown Sample"
+
+# Default Sample Settings
+DEFAULT_SAMPLE_RATE = 44100
+DEFAULT_SAMPLE_LENGTH = 44100
+DEFAULT_SAMPLE_NAME = "Unknown Sample"
+
+# Filter Frequency Range for Scaling
+MIN_FILTER_FREQ = 20.0
+MAX_FILTER_FREQ = 20000.0
+
+# Wavetable Generation Defaults
+DEFAULT_NUM_WAVETABLE_FRAMES = 3
+DEFAULT_FRAME_SIZE = 2048
+
+# Default file extension for generated presets
+PRESET_FILE_EXTENSION = ".vital"
+
+# Default number of wavetable frames
+DEFAULT_NUM_WAVETABLE_FRAMES = 3  
+
+# Default frame size for wavetable generation
+DEFAULT_FRAME_SIZE = 2048  
+
+# Default mod index and frequency range for FM synthesis
+FM_MOD_INDEX = 0.7
+FM_MOD_FREQ_BASE = 3.0  
+FM_MOD_FREQ_RANGE = 5.0  
+
+# Default pitch reference
+DEFAULT_PITCH_REFERENCE = 69  # Middle A (A4)
+
+# Harmonic limits for synthesis
+DEFAULT_MIN_HARMONICS = 1  
+DEFAULT_MAX_HARMONICS = 15  
+
+# Default waveform type for wavetable generation
+DEFAULT_WAVEFORM_TYPE = "saw"
+
+# Phase distortion factor
+DEFAULT_PHASE_DISTORTION = 3.5  
+DEFAULT_PHASE_DISTORTION_AMOUNT = 0.4  
+
+# Scaling factors for waveform blending
+TRIANGLE_BLEND_RATIO = 0.6  
+SAW_BLEND_RATIO = 0.4  
+
+EFFECTS_THRESHOLD = 0.1  # Minimum CC value to enable an effect
+
+DEFAULT_OSC_1_TRANSPOSE = 0
+DEFAULT_OSC_1_LEVEL = 0.5
+
+WAVETABLE_NAME_REPLACEMENTS = ["Attack Phase", "Harmonic Blend", "Final Release"]
+
+# Default CC thresholds for enabling effects
+EFFECT_ENABLE_THRESHOLD = 0.1
+
+# MIDI CC mappings for Vital effects
+EFFECTS_CC_MAP = {
+    "reverb": 91,
+    "chorus": 93,
+    "delay": 94,
+    "phaser": 95,
+    "distortion": 116,
+    "compressor": 117,
+    "flanger": 119
+}
+
+# Effect parameters that should be controlled by CC
+EFFECTS_PARAM_MAP = {
+    "reverb": "dry_wet",
+    "chorus": "dry_wet",
+    "delay": "dry_wet",
+    "phaser": "dry_wet",
+    "distortion": "drive",
+    "compressor": "amount",
+    "flanger": "dry_wet"
+}
+
+# config.py
+
+# Filter Frequency Range for Scaling
+MIN_FILTER_FREQ = 20.0
+MAX_FILTER_FREQ = 20000.0
+
+# Threshold to enable an effect
+EFFECT_ENABLE_THRESHOLD = 0.01  
+
+# MIDI CC Assignments for Filters
+FILTER_1_CUTOFF_CC = {74, 102}
+FILTER_1_RESONANCE_CC = {71}
+FILTER_1_CC_NUMBERS = FILTER_1_CUTOFF_CC | FILTER_1_RESONANCE_CC  # Combine
+
+FILTER_2_CUTOFF_CC = {85, 103}
+FILTER_2_RESONANCE_CC = {86, 104}
+FILTER_2_CC_NUMBERS = FILTER_2_CUTOFF_CC | FILTER_2_RESONANCE_CC  # Combine
