@@ -780,40 +780,6 @@ def update_settings(modified_preset: Dict[str, Any], notes: List[Dict[str, Any]]
             modified_preset["settings"]["osc_1_level"] = DEFAULT_OSC_1_LEVEL
 
 
-def add_modulations(modified_preset: Dict[str, Any], ccs: List[Dict[str, Any]]) -> None:
-    """
-    Maps MIDI CC values to Vital parameters using a mapping from config and
-    stores the modulations inside "settings" in the preset.
-
-    Args:
-        modified_preset (Dict[str, Any]): The preset dictionary to update.
-        ccs (List[Dict[str, Any]]): A list of MIDI CC event dictionaries.
-    """
-    print("\n🔍 Debug: Processing MIDI CCs...")
-    cc_map: Dict[int, float] = {}
-
-    for cc_event in ccs:
-        val_normalized = cc_event["value"] / 127.0
-        cc_map[cc_event["controller"]] = val_normalized
-
-    # 🔥 Ensure "settings" and "modulations" exist inside the preset
-    if "settings" not in modified_preset:
-        modified_preset["settings"] = {}  
-    if "modulations" not in modified_preset["settings"]:
-        modified_preset["settings"]["modulations"] = []
-
-    from config import MIDI_TO_VITAL_MAP  # Assuming this mapping is defined in config.py
-
-    for cc_num, cc_val in cc_map.items():
-        if cc_num in MIDI_TO_VITAL_MAP:
-            param = MIDI_TO_VITAL_MAP[cc_num]
-            set_vital_parameter(modified_preset, param, cc_val)
-            print(f"✅ CC{cc_num} -> {param} = {cc_val}")
-
-    print("\n🔍 Debug: Final modulations:")
-    print(json.dumps(modified_preset["settings"]["modulations"], indent=2))
-
-
 def generate_frame_waveform(midi_data: Dict[str, Any],
                             frame_idx: int,
                             num_frames: int,
@@ -1001,63 +967,78 @@ def determine_oscillator_stack(midi_data):
     return DEFAULT_STACK_MODE  # Fallback case
 
 
-def apply_cc_modulations(preset: Dict[str, Any], cc_map: Dict[int, float]) -> None:
+def apply_modulations_to_preset(preset: Dict[str, Any], midi_data: Dict[str, Any]) -> None:
     """
-    Applies MIDI CC-based modulations to the preset. Maps MIDI CC values to Vital parameters
-    using a mapping dictionary and stores the modulations properly inside "settings".
-    
-    Args:
-        preset (Dict[str, Any]): The Vital preset dictionary.
-        cc_map (Dict[int, float]): Mapping of MIDI CC numbers to normalized values.
+    Applies MIDI CC-based and expression modulations to the Vital preset.
+    Also routes useful sources like mod wheel, macros, and expression to relevant destinations.
     """
-    print("\n🔍 Debug: Processing MIDI CCs...")
+    from config import MIDI_TO_VITAL_MAP
+    from midi_analysis import compute_midi_stats
 
-    # Ensure "settings" exists
     preset.setdefault("settings", {})
-
-    # Ensure "modulations" exists within "settings"
     preset["settings"].setdefault("modulations", [])
+    modulations = []
 
-    # Create a new modulation list
-    new_modulations = []
+    # Extract CC map from MIDI data
+    cc_map: Dict[int, float] = {
+        cc["controller"]: cc["value"] / 127.0
+        for cc in midi_data.get("control_changes", [])
+    }
 
-    # Apply CC mappings
+    # === 1. Map CCs directly to parameters (from config) ===
     for cc_num, cc_val in cc_map.items():
         if cc_num in MIDI_TO_VITAL_MAP:
-            param: str = MIDI_TO_VITAL_MAP[cc_num]
-            # 🔥 Make sure all mappings go into "settings"
+            param = MIDI_TO_VITAL_MAP[cc_num]
             preset["settings"][param] = cc_val
             print(f"✅ CC{cc_num} -> {param} = {cc_val}")
 
-    # Special handling: mod wheel for filter cutoff
-    if 1 in cc_map:
-        mod_val: float = cc_map[1]
+    # === 2. Add modulations from common CCs ===
+    if 1 in cc_map:  # Mod wheel
+        mod_val = cc_map[1]
         if mod_val > 0.1:
-            new_modulations.append({
+            modulations.append({
                 "source": "mod_wheel",
                 "destination": "filter_1_cutoff",
                 "amount": mod_val * 0.8
             })
 
-    # Special handling: expression for volume
-    if 11 in cc_map:
-        exp_val: float = cc_map[11]
-        new_modulations.append({
+    if 11 in cc_map:  # Expression pedal
+        modulations.append({
             "source": "cc_expression",
             "destination": "volume",
-            "amount": exp_val
+            "amount": cc_map[11]
         })
 
-    # Pitch bend range if any pitch bend events > 0.1 exist.
-    if any(pb["pitch"] > 0.1 for pb in preset.get("pitch_bends", [])):
+    # === 3. Add useful macro modulations ===
+    macros = {
+        "macro_control_1": cc_map.get(20, 0.5),
+        "macro_control_2": cc_map.get(21, 0.5),
+        "macro_control_3": cc_map.get(22, 0.5),
+        "macro_control_4": cc_map.get(23, 0.5),
+    }
+    preset["settings"].update(macros)
+
+    modulations.extend([
+        {"source": "macro_control_1", "destination": "filter_1_cutoff", "amount": 0.8},
+        {"source": "macro_control_2", "destination": "distortion_drive", "amount": 0.7},
+        {"source": "macro_control_3", "destination": "reverb_dry_wet", "amount": 0.6},
+        {"source": "macro_control_4", "destination": "chorus_dry_wet", "amount": 0.5},
+    ])
+
+    # === 4. Add envelope modulations (predefined, later can be dynamic) ===
+    modulations.extend([
+        {"source": "env_2", "destination": "filter_1_cutoff", "amount": 0.8},
+        {"source": "env_3", "destination": "osc_1_warp", "amount": 0.6},
+    ])
+
+    # === 5. Optionally use pitch bend stats ===
+    if any(pb["pitch"] > 0.1 for pb in midi_data.get("pitch_bends", [])):
         preset["settings"]["pitch_bend_range"] = 12
 
-    # 🔥 Overwrite the existing modulations instead of appending
-    preset["settings"]["modulations"] = new_modulations
+    # ✅ Apply the modulations
+    preset["settings"]["modulations"] = modulations
 
-    # Debugging output
-    print("\n🔍 Debug: Final modulations:")
-    print(json.dumps(preset["settings"]["modulations"], indent=2))
+    print("✅ All modulations applied dynamically.")
 
 
 def replace_three_wavetables(json_data: str, frame_data_list: List[str]) -> str:
@@ -1208,17 +1189,9 @@ def modify_vital_preset(vital_preset: Dict[str, Any],
     """
     Modifies a Vital preset with MIDI data (notes, CCs, pitch bends, etc.)
     and returns the updated preset along with generated wavetable frame data.
-    
-    Args:
-        vital_preset (Dict[str, Any]): The default Vital preset.
-        midi_file (Any): Path to a MIDI file or already parsed MIDI data as a dict.
-        snapshot_method (str, optional): Snapshot method ("1", "2", or "3").
-        
-    Returns:
-        Tuple[Dict[str, Any], List[str]]: The modified preset and a list of wavetable frame data.
     """
     logging.info(f"🔍 Debug: Received midi_file of type {type(midi_file)}")
-    
+
     # 1) Parse MIDI data
     try:
         if isinstance(midi_file, dict):
@@ -1232,95 +1205,75 @@ def modify_vital_preset(vital_preset: Dict[str, Any],
     except Exception as e:
         logging.error(f"❌ Error parsing MIDI: {e}")
         midi_data = {"notes": [], "control_changes": [], "pitch_bends": []}
-    
-    # 2) Deep-copy the preset so as not to mutate the original
+
+    # 2) Deep-copy the preset
     modified: Dict[str, Any] = copy.deepcopy(vital_preset)
-    
+
     # Extract MIDI components
     notes: List[Dict[str, Any]] = midi_data.get("notes", [])
     ccs: List[Dict[str, Any]] = midi_data.get("control_changes", [])
     pitch_bends: List[Dict[str, Any]] = midi_data.get("pitch_bends", [])
-    
-    modified.setdefault("settings", {})
-    
-    # 3) Snapshot method: update osc1 pitch/level based on chosen method
-    update_settings(modified, notes, snapshot_method)
-    
-    # 4) Apply CC-based direct parameter mappings
+
+    # ⚠️ Rebuild cc_map (needed for filters, FX, macros, etc.)
     cc_map: Dict[int, float] = {cc["controller"]: cc["value"] / 127.0 for cc in ccs}
-    apply_cc_modulations(modified, cc_map)
-    
-    # 5) Set pitch bend (final pitch wheel value)
+
+    modified.setdefault("settings", {})
+
+    # 3) Snapshot method for OSC1 pitch/level
+    update_settings(modified, notes, snapshot_method)
+
+    # 4) Apply all modulations: CCs, macros, mod wheel, envelopes, expression, etc.
+    apply_modulations_to_preset(modified, midi_data)
+
+    # 5) Set pitch bend
     modified["pitch_wheel"] = pitch_bends[-1]["pitch"] / 8192.0 if pitch_bends else 0.0
-    
-    # 6) Apply dynamic envelopes based on MIDI note data
+
+    # 6) Envelopes
     apply_dynamic_env_to_preset(modified, midi_data)
-    logging.info("\n🔍 **Final Envelope Values in Modified Preset:**")
-    for env in ["env_1", "env_2", "env_3"]:
-        logging.info(f"  {env}_attack: {modified.get(f'{env}_attack', 'N/A')}")
-        logging.info(f"  {env}_decay: {modified.get(f'{env}_decay', 'N/A')}")
-        logging.info(f"  {env}_sustain: {modified.get(f'{env}_sustain', 'N/A')}")
-        logging.info(f"  {env}_release: {modified.get(f'{env}_release', 'N/A')}")
-    
-    # 7) Apply dynamic oscillator settings based on MIDI data.
+
+    # 7) Oscillators
     apply_full_oscillator_params_to_preset(modified, midi_data)
-    
-    # 8) Generate three wavetable frames
+
+    # 8) Wavetable generation
     frame_data: List[str] = generate_three_frame_wavetables(midi_data, num_frames=3, frame_size=2048)
-    
-    # 9) Enable oscillators based on note count
+
+    # 9) Enable oscillators
     num_notes: int = len(notes)
     modified["settings"]["osc_1_on"] = 1.0 if num_notes > 0 else 0.0
     modified["settings"]["osc_2_on"] = 1.0 if num_notes > 1 else 0.0
     modified["settings"]["osc_3_on"] = 1.0 if num_notes > 2 else 0.0
-    
-    # 10) Enable Sample Oscillator if specific MIDI CCs are present
+
+    # 10) Enable Sample Oscillator if any SMP-related CC is present
     SMP_CCS: set[int] = {31, 39, 40, 74, 85, 86}
-    smp_detected: List[int] = [cc for cc in SMP_CCS if cc in cc_map and cc_map[cc] > 0.01]
+    smp_detected = [cc for cc in SMP_CCS if cc in cc_map and cc_map[cc] > 0.01]
     if smp_detected:
         modified["settings"]["sample_on"] = 1.0
-        logging.info(f"✅ Enabling SMP (Sample Oscillator) due to MIDI CCs: {smp_detected}.")
+        logging.info(f"✅ Enabling SMP (Sample Oscillator) due to MIDI CCs: {smp_detected}")
         enable_sample_in_preset(modified, sample_path="assets/sample.wav")
     else:
         modified["settings"]["sample_on"] = 0.0
         logging.info("❌ SMP NOT Enabled.")
-    
-    # 11) Apply filters using the modular function
+
+    # 11) Filters
     apply_filters_to_preset(modified, cc_map, midi_data)
-    
-    # 12) Apply effects using the modular function
+
+    # 12) Effects
     apply_effects_to_preset(modified, cc_map, midi_data)
-    
-    # 13) Apply LFO modulations (each with unique rate/depth settings)
+
+    # 13) LFOs
     lfo_targets = get_best_lfo_targets(midi_data)
     build_lfo_from_cc(modified, midi_data, lfo_idx=1, destination=lfo_targets[0])
     build_lfo_from_cc(modified, midi_data, lfo_idx=2, destination=lfo_targets[1], one_shot=True)
     build_lfo_from_cc(modified, midi_data, lfo_idx=3, destination=lfo_targets[2])
     build_lfo_from_cc(modified, midi_data, lfo_idx=4, destination=lfo_targets[3])
 
-    # 14) Append envelope modulations inside "settings"
-    modified.setdefault("settings", {})  # Ensure "settings" exists
-    modified["settings"].setdefault("modulations", [])  # Ensure "modulations" exists inside "settings"
-
-    modified["settings"]["modulations"].append({
-        "source": "env_2",
-        "destination": "filter_1_cutoff",
-        "amount": 0.8
-    })
-    modified["settings"]["modulations"].append({
-        "source": "env_3",
-        "destination": "osc_1_warp",
-        "amount": 0.6
-    })
-
-    
-    # 15) Apply generated wavetable frames to the first oscillator keyframes
+    # 14) Wavetable frames into keyframes
     if "groups" in modified and modified["groups"]:
         group0 = modified["groups"][0]
         if "components" in group0 and group0["components"]:
             component0 = group0["components"][0]
             if "keyframes" in component0:
-                keyframes: List[Dict[str, Any]] = component0["keyframes"]
+                keyframes = component0["keyframes"]
                 while len(keyframes) < 3:
                     keyframes.append({
                         "position": 0.0,
@@ -1331,15 +1284,13 @@ def modify_vital_preset(vital_preset: Dict[str, Any],
                     keyframes[i]["wave_data"] = frame_data[i]
                     keyframes[i]["wave_source"] = {"type": "sample"}
                 component0["name"] = "Generated Wavetable"
-    
-    # 16) Update the preset name based on the MIDI file name
+
+    # 15) Preset name from MIDI file
     if "preset_name" in modified:
-        midi_base_name: str = (os.path.splitext(os.path.basename(midi_file))[0]
-                               if isinstance(midi_file, str)
-                               else "Custom_Preset")
+        midi_base_name = os.path.splitext(os.path.basename(midi_file))[0] if isinstance(midi_file, str) else "Custom_Preset"
         modified["preset_name"] = f"Generated from {midi_base_name}"
-    
-    # 17) Rename the first three occurrences of "Init" to descriptive names
+
+    # 16) Rename Init names
     def replace_init_names(obj: Any, replacement_names: List[str], count: List[int] = [0]) -> None:
         if isinstance(obj, dict):
             for key, value in obj.items():
@@ -1352,20 +1303,18 @@ def modify_vital_preset(vital_preset: Dict[str, Any],
             for item in obj:
                 replace_init_names(item, replacement_names, count)
     replace_init_names(modified, ["Attack Phase", "Harmonic Blend", "Final Release"])
-    
 
-    # 18) Apply dynamic oscillator stack setting based on MIDI data
+    # 17) Oscillator stack setting
     stack_setting = determine_oscillator_stack(midi_data)
     modified["settings"]["osc_1_stack"] = stack_setting
     modified["settings"]["osc_2_stack"] = stack_setting
     modified["settings"]["osc_3_stack"] = stack_setting
+    logging.info(f"🎛️ Oscillator stack: {stack_setting}")
 
-    logging.info(f"🎛️ Applying oscillator stack setting: {stack_setting}")
-    
-    # 19) Apply Macro Controls based on MIDI CC
+    # 18) Macro control routing
     apply_macro_controls_to_preset(modified, cc_map)
 
-    logging.info("✅ Finished applying wavetables, envelopes, LFOs, filters, effects, sample oscillator, macro controls, and custom oscillator settings.")
+    logging.info("✅ Vital preset fully modified based on MIDI.")
     return modified, frame_data
 
 
