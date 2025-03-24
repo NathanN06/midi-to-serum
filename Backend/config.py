@@ -316,14 +316,55 @@ EFFECTS_CC_MAP = {
 
 # Effect parameters that should be controlled by CC
 EFFECTS_PARAM_MAP = {
-    "reverb": "dry_wet",
-    "chorus": "dry_wet",
-    "delay": "dry_wet",
-    "phaser": "dry_wet",
-    "distortion": "drive",
-    "compressor": "amount",
-    "flanger": "dry_wet"
+    # Reverb
+    "reverb": {
+        "dry_wet": "reverb_dry_wet",
+        "size": "reverb_size",
+        "damp": "reverb_damp",
+        "width": "reverb_width"
+    },
+
+    # Delay
+    "delay": {
+        "dry_wet": "delay_dry_wet",
+        "feedback": "delay_feedback",
+        "tempo": "delay_tempo",
+        "cutoff": "delay_filter_cutoff"
+    },
+
+    # Chorus
+    "chorus": {
+        "dry_wet": "chorus_dry_wet",
+        "feedback": "chorus_feedback",
+        "rate": "chorus_rate"
+    },
+
+    # Phaser
+    "phaser": {
+        "dry_wet": "phaser_dry_wet",
+        "feedback": "phaser_feedback",
+        "rate": "phaser_rate"
+    },
+
+    # Distortion
+    "distortion": {
+        "drive": "distortion_drive",
+        "mix": "distortion_mix",
+        "type": "distortion_type"
+    },
+
+    # Compressor
+    "compressor": {
+        "amount": "compressor_amount"
+    },
+
+    # Flanger
+    "flanger": {
+        "dry_wet": "flanger_dry_wet",
+        "feedback": "flanger_feedback"
+    }
 }
+
 
 # Filter Frequency Range for Scaling
 MIN_FILTER_FREQ = 20.0
@@ -340,3 +381,41 @@ FILTER_1_CC_NUMBERS = FILTER_1_CUTOFF_CC | FILTER_1_RESONANCE_CC  # Combine
 FILTER_2_CUTOFF_CC = {85, 103}
 FILTER_2_RESONANCE_CC = {86, 104}
 FILTER_2_CC_NUMBERS = FILTER_2_CUTOFF_CC | FILTER_2_RESONANCE_CC  # Combine
+
+# Default stack mode if no MIDI data is available
+DEFAULT_STACK_MODE = "Unison"
+
+# Mapping MIDI intervals to stack settings
+STACK_MODE_RULES = {
+    "single_note": "Unison",
+    "octave": "Octave",
+    "double_octave": "2x Octave",
+    "power_chord": "Power Chord",
+    "double_power_chord": "2x Power Chord",
+    "major_chord": "Major Chord",
+    "minor_chord": "Minor Chord",
+    "wide_interval_12": "Center Drop 12",
+    "wide_interval_24": "Center Drop 24",
+    "harmonics": "Harmonics",
+    "odd_harmonics": "Odd Harmonics"
+}
+
+
+# Additional CC mappings for Filter 1
+FILTER_1_DRIVE_CC = {73}           # Example: CC73 maps to drive
+FILTER_1_KEYTRACK_CC = {75}        # Example: CC75 maps to keytrack
+FILTER_1_MIX_CC = {76}             # Example: CC76 maps to mix
+
+# Additional CC mappings for Filter 2
+FILTER_2_DRIVE_CC = {87}
+FILTER_2_KEYTRACK_CC = {88}
+FILTER_2_MIX_CC = {89}
+
+# Updated CC groups for detection
+FILTER_1_CC_NUMBERS = FILTER_1_CUTOFF_CC | FILTER_1_RESONANCE_CC | FILTER_1_DRIVE_CC | FILTER_1_KEYTRACK_CC | FILTER_1_MIX_CC
+FILTER_2_CC_NUMBERS = FILTER_2_CUTOFF_CC | FILTER_2_RESONANCE_CC | FILTER_2_DRIVE_CC | FILTER_2_KEYTRACK_CC | FILTER_2_MIX_CC
+
+
+DEFAULT_FILTER_DRIVE = 0.5
+DEFAULT_FILTER_KEYTRACK = 0.5
+DEFAULT_FILTER_MIX = 1.0

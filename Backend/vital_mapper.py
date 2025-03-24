@@ -100,7 +100,29 @@ from config import (
     MAX_FILTER_FREQ,
     FILTER_1_CUTOFF_CC,
     FILTER_1_CC_NUMBERS,
-    FILTER_2_CC_NUMBERS
+    FILTER_2_CC_NUMBERS,
+
+    DEFAULT_STACK_MODE, 
+    STACK_MODE_RULES,
+    MIN_FILTER_FREQ,
+    MAX_FILTER_FREQ,
+    EFFECT_ENABLE_THRESHOLD,
+    DEFAULT_FILTER_DRIVE,
+    DEFAULT_FILTER_KEYTRACK,
+    DEFAULT_FILTER_MIX,
+    FILTER_1_CC_NUMBERS,
+    FILTER_1_CUTOFF_CC,
+    FILTER_1_RESONANCE_CC,
+    FILTER_1_DRIVE_CC,
+    FILTER_1_KEYTRACK_CC,
+    FILTER_1_MIX_CC,
+    FILTER_2_CC_NUMBERS,
+    FILTER_2_CUTOFF_CC,
+    FILTER_2_RESONANCE_CC,
+    FILTER_2_DRIVE_CC,
+    FILTER_2_KEYTRACK_CC,
+    FILTER_2_MIX_CC,
+
 )
 
 
@@ -248,8 +270,11 @@ def build_lfo_from_cc(preset: Dict[str, Any],
         preset["settings"][f"lfo_{lfo_idx}_one_shot"] = 1.0
 
     # Add a modulation mapping for the LFO depth
-    preset.setdefault("modulations", [])
-    preset["modulations"].append({
+    preset.setdefault("settings", {})  # Ensure "settings" exists
+    preset["settings"].setdefault("modulations", [])  # Ensure "modulations" exists inside "settings"
+
+    preset["settings"]["modulations"].append({
+
         "source": f"lfo_{lfo_idx}",
         "destination": destination,
         "amount": lfo_depth_scaled  
@@ -496,87 +521,171 @@ def apply_dynamic_env_to_preset(preset: Dict[str, Any], midi_data: Dict[str, Any
     print("✅ Envelope modulations added: ENV2 → Filter, ENV3 → Warp")
 
 
-def apply_filters_to_preset(preset: Dict[str, Any], cc_map: Dict[int, float]) -> None:
+def apply_filters_to_preset(preset: Dict[str, Any], cc_map: Dict[int, float], midi_data: Dict[str, Any]) -> None:
     """
-    Enables and configures Filter 1 & 2 based on MIDI CC data.
-    Maps cutoff and resonance values from CCs using a logarithmic scale mapping
-    from MIN_FILTER_FREQ to MAX_FILTER_FREQ, and writes parameters under preset["filters"].
+    Sets filter parameters directly at the top level of the Vital preset JSON file,
+    based on incoming MIDI CC data or fallback MIDI stats.
+    """
+    from midi_analysis import compute_midi_stats  # Avoid circular import
+    import math
 
-    Args:
-        preset (Dict[str, Any]): The Vital preset dictionary.
-        cc_map (Dict[int, float]): Mapping of MIDI CC numbers to normalized values (0.0–1.0).
-    """
-    preset.setdefault("filters", {})
-    preset["filters"].setdefault("filter_1", {})
-    preset["filters"].setdefault("filter_2", {})
+    # Remove nested "filters" if it exists
+    if "settings" in preset and "filters" in preset["settings"]:
+        preset["settings"].pop("filters", None)
+
+    preset.setdefault("settings", {})
 
     def scale_cutoff(cc_value: float) -> float:
-        """
-        Maps a normalized CC value (0.0–1.0) to a normalized frequency value using an exponential mapping.
+        freq = MIN_FILTER_FREQ * (MAX_FILTER_FREQ / MIN_FILTER_FREQ) ** cc_value
+        return (math.log(freq) - math.log(MIN_FILTER_FREQ)) / (math.log(MAX_FILTER_FREQ) - math.log(MIN_FILTER_FREQ))
 
-        Args:
-            cc_value (float): The normalized CC value.
+    def configure_filter(filter_id: int, detected_ccs: List[int],
+                         cutoff_cc, resonance_cc, drive_cc, keytrack_cc, mix_cc):
+        prefix = f"filter_{filter_id}_"
+        if detected_ccs:
+            preset["settings"][f"{prefix}on"] = 1.0
+            for cc in detected_ccs:
+                value = cc_map[cc]
+                if cc in cutoff_cc:
+                    preset["settings"][f"{prefix}cutoff"] = scale_cutoff(value)
+                elif cc in resonance_cc:
+                    preset["settings"][f"{prefix}resonance"] = value
+                elif cc in drive_cc:
+                    preset["settings"][f"{prefix}drive"] = value * 20.0  # Scaled for Vital's drive range
+                elif cc in keytrack_cc:
+                    preset["settings"][f"{prefix}keytrack"] = value
+                elif cc in mix_cc:
+                    preset["settings"][f"{prefix}mix"] = value
+        else:
+            preset["settings"][f"{prefix}on"] = 0.0
 
-        Returns:
-            float: The normalized frequency value (0.0–1.0).
-        """
-        freq: float = MIN_FILTER_FREQ * (MAX_FILTER_FREQ / MIN_FILTER_FREQ) ** cc_value
-        normalized: float = (math.log(freq) - math.log(MIN_FILTER_FREQ)) / (math.log(MAX_FILTER_FREQ) - math.log(MIN_FILTER_FREQ))
-        return max(0.0, min(1.0, normalized))
+    # Detect CCs
+    filter_1_detected = [cc for cc in FILTER_1_CC_NUMBERS if cc in cc_map and cc_map[cc] >= EFFECT_ENABLE_THRESHOLD]
+    filter_2_detected = [cc for cc in FILTER_2_CC_NUMBERS if cc in cc_map and cc_map[cc] >= EFFECT_ENABLE_THRESHOLD]
 
-    # Filter 1 (Cutoff: CC74 & CC102, Resonance: CC71)
-    filter_1_detected: List[int] = [cc for cc in FILTER_1_CC_NUMBERS if cc in cc_map and cc_map[cc] >= EFFECT_ENABLE_THRESHOLD]
-    if filter_1_detected:
-        preset["filters"]["filter_1"]["enabled"] = True
-        for cc in filter_1_detected:
-            if cc in FILTER_1_CUTOFF_CC:
-                preset["filters"]["filter_1"]["cutoff"] = scale_cutoff(cc_map[cc])
-            elif cc in FILTER_1_RESONANCE_CC:
-                preset["filters"]["filter_1"]["resonance"] = cc_map[cc]
-    else:
-        preset["filters"]["filter_1"]["enabled"] = False
+    # Apply filters based on CCs
+    configure_filter(1, filter_1_detected, FILTER_1_CUTOFF_CC, FILTER_1_RESONANCE_CC,
+                     FILTER_1_DRIVE_CC, FILTER_1_KEYTRACK_CC, FILTER_1_MIX_CC)
 
-    # Filter 2 (Cutoff: CC85 & CC103, Resonance: CC86 & CC104)
-    filter_2_detected: List[int] = [cc for cc in FILTER_2_CC_NUMBERS if cc in cc_map and cc_map[cc] >= EFFECT_ENABLE_THRESHOLD]
-    if filter_2_detected:
-        preset["filters"]["filter_2"]["enabled"] = True
-        for cc in filter_2_detected:
-            if cc in FILTER_2_CUTOFF_CC:
-                preset["filters"]["filter_2"]["cutoff"] = scale_cutoff(cc_map[cc])
-            elif cc in FILTER_2_RESONANCE_CC:
-                preset["filters"]["filter_2"]["resonance"] = cc_map[cc]
-    else:
-        preset["filters"]["filter_2"]["enabled"] = False
+    configure_filter(2, filter_2_detected, FILTER_2_CUTOFF_CC, FILTER_2_RESONANCE_CC,
+                     FILTER_2_DRIVE_CC, FILTER_2_KEYTRACK_CC, FILTER_2_MIX_CC)
+
+    # Fallback logic with dynamic values
+    if not filter_1_detected and not filter_2_detected:
+        stats = compute_midi_stats(midi_data)
+        avg_pitch = stats.get("avg_pitch", 60)
+        pitch_range = stats.get("pitch_range", 12)
+        velocity = stats.get("avg_velocity", 80) / 127.0
+
+        # Dynamically scale additional filter parameters
+        fallback_cutoff = scale_cutoff((avg_pitch - 20) / 80)  # Maps avg_pitch from 20–100 range
+        fallback_resonance = min(1.0, pitch_range / 24.0 + velocity * 0.3)
+        fallback_drive = min(20.0, velocity * 15.0 + 1.0)       # Drive increases with velocity
+        fallback_keytrack = min(1.0, pitch_range / 36.0)
+        fallback_mix = 1.0  # You can make this dynamic if needed
+
+        preset["settings"].update({
+            "filter_1_on": 1.0,
+            "filter_1_cutoff": fallback_cutoff,
+            "filter_1_resonance": fallback_resonance,
+            "filter_1_drive": fallback_drive,
+            "filter_1_keytrack": fallback_keytrack,
+            "filter_1_mix": fallback_mix
+        })
+
+        print("Fallback: Enabled Filter 1 based on pitch/velocity stats")
 
     print(f"Filter 1 CCs detected: {filter_1_detected}")
     print(f"Filter 2 CCs detected: {filter_2_detected}")
 
 
-def apply_effects_to_preset(preset: Dict[str, Any], cc_map: Dict[int, float]) -> None:
-    """
-    Applies MIDI CC-based effect settings to the preset by updating entries under preset["fx"].
-
-    Args:
-        preset (Dict[str, Any]): The Vital preset dictionary.
-        cc_map (Dict[int, float]): Mapping of MIDI CC numbers to normalized values.
-    """
-    preset.setdefault("fx", {})
+def apply_effects_to_preset(preset: Dict[str, Any], cc_map: Dict[int, float], midi_data: Dict[str, Any]) -> None:
+    preset.setdefault("settings", {})
+    effects_applied = False
 
     for effect, cc in EFFECTS_CC_MAP.items():
-        if cc in cc_map and cc_map[cc] > EFFECT_ENABLE_THRESHOLD:
-            preset["fx"].setdefault(effect, {})
-            preset["fx"][effect]["enabled"] = True
-            preset["fx"][effect][EFFECTS_PARAM_MAP[effect]] = cc_map[cc]
+        if cc in cc_map and cc_map[cc] >= EFFECT_ENABLE_THRESHOLD:
+            effects_applied = True
+            preset["settings"][f"{effect}_on"] = 1.0
+
+            # Multi-param support
+            effect_params = EFFECTS_PARAM_MAP.get(effect, {})
+            if isinstance(effect_params, dict):
+                for subparam, vital_param in effect_params.items():
+                    preset["settings"][vital_param] = cc_map[cc]
+            else:
+                # Fallback if it's still a string (legacy support)
+                preset["settings"][effect_params] = cc_map[cc]
         else:
-            if effect in preset["fx"]:
-                preset["fx"][effect]["enabled"] = False
+            preset["settings"][f"{effect}_on"] = 0.0
+
+    # Fallback if no FX CCs were used
+    if not effects_applied:
+        stats = compute_midi_stats(midi_data)
+        velocity = stats.get("avg_velocity", 80) / 127.0
+        note_density = stats.get("note_density", 4.0)
+
+        if velocity > 0.5 or note_density > 4.0:
+            preset["settings"].update({
+                "reverb_on": 1.0,
+                "reverb_dry_wet": velocity,
+                "delay_on": 1.0,
+                "delay_dry_wet": 0.3 + (note_density / 10.0)
+            })
+            print("Fallback: Enabled default effects based on velocity and note density")
+
+
+def get_best_lfo_targets(midi_data: Dict[str, Any]) -> List[str]:
+    """
+    Suggests LFO modulation targets based on MIDI features.
+    Returns a list of 4 ideal LFO destinations.
+    """
+    stats = compute_midi_stats(midi_data)
+    pitch_range = stats.get("pitch_range", 12)
+    note_density = stats.get("note_density", 4.0)
+    avg_velocity = stats.get("avg_velocity", 80) / 127.0
+
+    # CC map for dynamic logic
+    cc_map = {cc["controller"]: cc["value"] / 127.0 for cc in midi_data.get("control_changes", [])}
+
+    # Start with essential LFO targets
+    targets = []
+
+    # If there's a lot of movement, modulate pitch or filter cutoff
+    if pitch_range > 12:
+        targets.append("osc_1_pitch")
+        targets.append("filter_1_cutoff")
+    else:
+        targets.append("osc_1_level")
+
+    # If CC1 is used, modulate something expressive
+    if 1 in cc_map and cc_map[1] > 0.2:
+        targets.append("osc_1_warp")
+    else:
+        targets.append("osc_2_pitch")
+
+    # Use note density to choose rhythmic vs static modulation
+    if note_density > 4.0:
+        targets.append("filter_2_resonance")
+    else:
+        targets.append("reverb_dry_wet")
+
+    # Fallback filler to ensure 4 targets
+    while len(targets) < 4:
+        fallback_pool = ["volume", "osc_2_warp", "distortion_drive", "delay_feedback"]
+        for param in fallback_pool:
+            if param not in targets:
+                targets.append(param)
+                break
+
+    return targets[:4]  # Just in case it overflows
 
 
 def set_vital_parameter(preset: Dict[str, Any], param_name: str, value: Any) -> None:
     """
-    Safely sets a Vital parameter, placing it in the top-level or in 'settings' as needed.
-    Handles macro parameters specially.
-    
+    Safely sets a Vital parameter, ensuring it is placed inside 'settings'.
+    Handles macro parameters separately.
+
     Args:
         preset (Dict[str, Any]): The Vital preset dictionary.
         param_name (str): The name of the parameter to set.
@@ -592,7 +701,8 @@ def set_vital_parameter(preset: Dict[str, Any], param_name: str, value: Any) -> 
         except ValueError:
             logging.error(f"Invalid macro parameter: {param_name}")
     else:
-        preset[param_name] = value
+        # 🔥 Ensure ALL parameters go inside "settings"
+        preset["settings"][param_name] = value
 
 
 def enable_sample_in_preset(preset: Dict[str, Any], sample_path: str = "assets/sample.wav") -> None:
@@ -627,24 +737,26 @@ def update_settings(modified_preset: Dict[str, Any], notes: List[Dict[str, Any]]
         notes (List[Dict[str, Any]]): List of MIDI note dictionaries.
         snapshot_method (str): The snapshot method ("1", "2", or "3").
     """
+    modified_preset.setdefault("settings", {})  # Ensure "settings" exists
+
     if snapshot_method == "1":
         if notes:
             note = notes[0]
-            modified_preset["osc_1_transpose"] = note["pitch"] - MIDI_PITCH_REFERENCE
-            modified_preset["osc_1_level"] = note["velocity"] / 127.0
+            modified_preset["settings"]["osc_1_transpose"] = note["pitch"] - MIDI_PITCH_REFERENCE
+            modified_preset["settings"]["osc_1_level"] = note["velocity"] / 127.0
         else:
-            modified_preset["osc_1_transpose"] = DEFAULT_OSC_1_TRANSPOSE
-            modified_preset["osc_1_level"] = DEFAULT_OSC_1_LEVEL
+            modified_preset["settings"]["osc_1_transpose"] = DEFAULT_OSC_1_TRANSPOSE
+            modified_preset["settings"]["osc_1_level"] = DEFAULT_OSC_1_LEVEL
 
     elif snapshot_method == "2":
         if notes:
             avg_pitch = sum(n["pitch"] for n in notes) / len(notes)
             avg_vel = sum(n["velocity"] for n in notes) / len(notes)
-            modified_preset["osc_1_transpose"] = avg_pitch - MIDI_PITCH_REFERENCE
-            modified_preset["osc_1_level"] = avg_vel / 127.0
+            modified_preset["settings"]["osc_1_transpose"] = avg_pitch - MIDI_PITCH_REFERENCE
+            modified_preset["settings"]["osc_1_level"] = avg_vel / 127.0
         else:
-            modified_preset["osc_1_transpose"] = DEFAULT_OSC_1_TRANSPOSE
-            modified_preset["osc_1_level"] = DEFAULT_OSC_1_LEVEL
+            modified_preset["settings"]["osc_1_transpose"] = DEFAULT_OSC_1_TRANSPOSE
+            modified_preset["settings"]["osc_1_level"] = DEFAULT_OSC_1_LEVEL
 
     elif snapshot_method == "3":
         try:
@@ -660,29 +772,38 @@ def update_settings(modified_preset: Dict[str, Any], notes: List[Dict[str, Any]]
                     chosen_note = n
                     break
         if chosen_note:
-            modified_preset["osc_1_transpose"] = chosen_note["pitch"] - MIDI_PITCH_REFERENCE
-            modified_preset["osc_1_level"] = chosen_note["velocity"] / 127.0
+            modified_preset["settings"]["osc_1_transpose"] = chosen_note["pitch"] - MIDI_PITCH_REFERENCE
+            modified_preset["settings"]["osc_1_level"] = chosen_note["velocity"] / 127.0
         else:
             print("No note active at that time. Using default.")
-            modified_preset["osc_1_transpose"] = DEFAULT_OSC_1_TRANSPOSE
-            modified_preset["osc_1_level"] = DEFAULT_OSC_1_LEVEL
+            modified_preset["settings"]["osc_1_transpose"] = DEFAULT_OSC_1_TRANSPOSE
+            modified_preset["settings"]["osc_1_level"] = DEFAULT_OSC_1_LEVEL
+
 
 def add_modulations(modified_preset: Dict[str, Any], ccs: List[Dict[str, Any]]) -> None:
     """
     Maps MIDI CC values to Vital parameters using a mapping from config and
-    stores the modulations in the preset.
-    
+    stores the modulations inside "settings" in the preset.
+
     Args:
         modified_preset (Dict[str, Any]): The preset dictionary to update.
         ccs (List[Dict[str, Any]]): A list of MIDI CC event dictionaries.
     """
     print("\n🔍 Debug: Processing MIDI CCs...")
     cc_map: Dict[int, float] = {}
+
     for cc_event in ccs:
         val_normalized = cc_event["value"] / 127.0
         cc_map[cc_event["controller"]] = val_normalized
 
+    # 🔥 Ensure "settings" and "modulations" exist inside the preset
+    if "settings" not in modified_preset:
+        modified_preset["settings"] = {}  
+    if "modulations" not in modified_preset["settings"]:
+        modified_preset["settings"]["modulations"] = []
+
     from config import MIDI_TO_VITAL_MAP  # Assuming this mapping is defined in config.py
+
     for cc_num, cc_val in cc_map.items():
         if cc_num in MIDI_TO_VITAL_MAP:
             param = MIDI_TO_VITAL_MAP[cc_num]
@@ -690,9 +811,7 @@ def add_modulations(modified_preset: Dict[str, Any], ccs: List[Dict[str, Any]]) 
             print(f"✅ CC{cc_num} -> {param} = {cc_val}")
 
     print("\n🔍 Debug: Final modulations:")
-    if "modulations" not in modified_preset:
-        modified_preset["modulations"] = []
-    print(json.dumps(modified_preset["modulations"], indent=2))
+    print(json.dumps(modified_preset["settings"]["modulations"], indent=2))
 
 
 def generate_frame_waveform(midi_data: Dict[str, Any],
@@ -842,28 +961,79 @@ def generate_three_frame_wavetables(midi_data: Dict[str, Any],
     return frames
 
 
+def determine_oscillator_stack(midi_data):
+    """Determine the best oscillator stack setting based on MIDI note intervals."""
+    notes = sorted(set(note["pitch"] for note in midi_data.get("notes", [])))  # Get unique sorted pitches
+
+    if len(notes) == 0:
+        return DEFAULT_STACK_MODE  # Use default from config
+
+    intervals = [notes[i + 1] - notes[i] for i in range(len(notes) - 1)]
+
+    if len(notes) == 1:
+        return STACK_MODE_RULES["single_note"]
+    elif len(notes) == 2:
+        if 12 in intervals:
+            return STACK_MODE_RULES["octave"]
+        elif 24 in intervals:
+            return STACK_MODE_RULES["double_octave"]
+        elif 7 in intervals:
+            return STACK_MODE_RULES["power_chord"]
+        elif 5 in intervals:
+            return STACK_MODE_RULES["minor_chord"]
+    elif len(notes) == 3:
+        if 12 in intervals and 7 in intervals:
+            return STACK_MODE_RULES["double_power_chord"]
+        elif {4, 3, 7}.issubset(set(intervals)):
+            return STACK_MODE_RULES["major_chord"]
+        elif {3, 4, 7}.issubset(set(intervals)):
+            return STACK_MODE_RULES["minor_chord"]
+    elif len(notes) > 3:
+        if max(intervals) > 24:
+            return STACK_MODE_RULES["wide_interval_24"]
+        elif max(intervals) > 12:
+            return STACK_MODE_RULES["wide_interval_12"]
+        elif all(i % 2 == 0 for i in intervals):
+            return STACK_MODE_RULES["odd_harmonics"]
+        else:
+            return STACK_MODE_RULES["harmonics"]
+
+    return DEFAULT_STACK_MODE  # Fallback case
+
+
 def apply_cc_modulations(preset: Dict[str, Any], cc_map: Dict[int, float]) -> None:
     """
     Applies MIDI CC-based modulations to the preset. Maps MIDI CC values to Vital parameters
-    using a mapping dictionary and stores the modulations.
+    using a mapping dictionary and stores the modulations properly inside "settings".
     
     Args:
         preset (Dict[str, Any]): The Vital preset dictionary.
         cc_map (Dict[int, float]): Mapping of MIDI CC numbers to normalized values.
     """
     print("\n🔍 Debug: Processing MIDI CCs...")
+
+    # Ensure "settings" exists
+    preset.setdefault("settings", {})
+
+    # Ensure "modulations" exists within "settings"
+    preset["settings"].setdefault("modulations", [])
+
+    # Create a new modulation list
+    new_modulations = []
+
+    # Apply CC mappings
     for cc_num, cc_val in cc_map.items():
         if cc_num in MIDI_TO_VITAL_MAP:
             param: str = MIDI_TO_VITAL_MAP[cc_num]
-            set_vital_parameter(preset, param, cc_val)
+            # 🔥 Make sure all mappings go into "settings"
+            preset["settings"][param] = cc_val
             print(f"✅ CC{cc_num} -> {param} = {cc_val}")
 
     # Special handling: mod wheel for filter cutoff
     if 1 in cc_map:
         mod_val: float = cc_map[1]
         if mod_val > 0.1:
-            preset.setdefault("modulations", [])
-            preset["modulations"].append({
+            new_modulations.append({
                 "source": "mod_wheel",
                 "destination": "filter_1_cutoff",
                 "amount": mod_val * 0.8
@@ -872,8 +1042,7 @@ def apply_cc_modulations(preset: Dict[str, Any], cc_map: Dict[int, float]) -> No
     # Special handling: expression for volume
     if 11 in cc_map:
         exp_val: float = cc_map[11]
-        preset.setdefault("modulations", [])
-        preset["modulations"].append({
+        new_modulations.append({
             "source": "cc_expression",
             "destination": "volume",
             "amount": exp_val
@@ -883,10 +1052,12 @@ def apply_cc_modulations(preset: Dict[str, Any], cc_map: Dict[int, float]) -> No
     if any(pb["pitch"] > 0.1 for pb in preset.get("pitch_bends", [])):
         preset["settings"]["pitch_bend_range"] = 12
 
+    # 🔥 Overwrite the existing modulations instead of appending
+    preset["settings"]["modulations"] = new_modulations
+
+    # Debugging output
     print("\n🔍 Debug: Final modulations:")
-    if "modulations" not in preset:
-        preset["modulations"] = []
-    print(json.dumps(preset["modulations"], indent=2))
+    print(json.dumps(preset["settings"]["modulations"], indent=2))
 
 
 def replace_three_wavetables(json_data: str, frame_data_list: List[str]) -> str:
@@ -923,12 +1094,12 @@ def replace_three_wavetables(json_data: str, frame_data_list: List[str]) -> str:
 def derive_full_oscillator_params(stats: Dict[str, float], osc_index: int) -> Dict[str, Any]:
     """
     Derive a full set of oscillator parameters for a given oscillator based on MIDI stats.
-    
+
     Args:
-        stats (Dict[str, float]): Dictionary with keys 'avg_pitch', 'avg_velocity', 
+        stats (Dict[str, float]): Dictionary with keys 'avg_pitch', 'avg_velocity',
                                   'pitch_range', and 'note_density'.
         osc_index (int): Oscillator index (1, 2, or 3).
-    
+
     Returns:
         Dict[str, Any]: A dictionary mapping Vital oscillator parameter names to computed values.
     """
@@ -937,11 +1108,17 @@ def derive_full_oscillator_params(stats: Dict[str, float], osc_index: int) -> Di
     note_density = stats["note_density"]
     avg_pitch = stats["avg_pitch"]
 
+    # Dynamically derived values
     unison_voices = float(min(MAX_UNISON_VOICES, int(1 + note_density / 5)))
-    unison_detune = min(20, pitch_range / 2.0)
-    phase = (avg_pitch % 12) / 12.0  # Maps average pitch mod 12 to 0..1
+    unison_detune = min(20.0, pitch_range * 0.8)
+    phase = (avg_pitch % 12) / 12.0
     tune = (avg_pitch - 60) % 12
-    frame_spread = 1.0 if pitch_range >= 12 else pitch_range / 12.0
+    frame_spread = min(1.0, pitch_range / 12.0)
+    spectral_spread = min(1.0, pitch_range / 24.0)
+    distortion_spread = min(1.0, avg_velocity)
+    morph_amount = min(1.0, pitch_range / 32.0 + 0.3)
+    stereo_spread = min(1.0, 0.5 + note_density / 10.0)
+    blend = min(1.0, 0.6 + avg_velocity * 0.4)
 
     return {
         f"osc_{osc_index}_destination": 0.0,
@@ -949,7 +1126,7 @@ def derive_full_oscillator_params(stats: Dict[str, float], osc_index: int) -> Di
         f"osc_{osc_index}_detune_range": min(4.0, pitch_range / 10.0 + 1.0),
         f"osc_{osc_index}_distortion_amount": 0.5,
         f"osc_{osc_index}_distortion_phase": 0.5,
-        f"osc_{osc_index}_distortion_spread": 0.0,
+        f"osc_{osc_index}_distortion_spread": distortion_spread,
         f"osc_{osc_index}_distortion_type": 0.0,
         f"osc_{osc_index}_frame_spread": frame_spread,
         f"osc_{osc_index}_level": min(1.0, avg_velocity + 0.1 * osc_index),
@@ -959,16 +1136,16 @@ def derive_full_oscillator_params(stats: Dict[str, float], osc_index: int) -> Di
         f"osc_{osc_index}_phase": phase,
         f"osc_{osc_index}_random_phase": DEFAULT_RANDOM_PHASE,
         f"osc_{osc_index}_smooth_interpolation": 0.0,
-        f"osc_{osc_index}_spectral_morph_amount": DEFAULT_SPECTRAL_MORPH_AMOUNT,
-        f"osc_{osc_index}_spectral_morph_spread": 0.0,
+        f"osc_{osc_index}_spectral_morph_amount": morph_amount,
+        f"osc_{osc_index}_spectral_morph_spread": spectral_spread,
         f"osc_{osc_index}_spectral_morph_type": 0.0,
         f"osc_{osc_index}_spectral_unison": 0.0,
         f"osc_{osc_index}_stack_style": DEFAULT_STACK_STYLE,
-        f"osc_{osc_index}_stereo_spread": DEFAULT_STEREO_SPREAD,
+        f"osc_{osc_index}_stereo_spread": stereo_spread,
         f"osc_{osc_index}_transpose": 0.0,
         f"osc_{osc_index}_transpose_quantize": 0.0,
         f"osc_{osc_index}_tune": tune,
-        f"osc_{osc_index}_unison_blend": DEFAULT_UNISON_BLEND,
+        f"osc_{osc_index}_unison_blend": blend,
         f"osc_{osc_index}_unison_detune": unison_detune,
         f"osc_{osc_index}_unison_voices": unison_voices,
         f"osc_{osc_index}_view_2d": 1.0,
@@ -996,8 +1173,10 @@ def apply_macro_controls_to_preset(preset: Dict[str, Any], cc_map: Dict[int, flo
     """
     Apply macros with meaningful modulation in the preset matrix.
     """
-    preset.setdefault("modulations", [])
-    
+    # 🔥 Ensure "settings" and "modulations" exist inside it
+    preset.setdefault("settings", {})  
+    preset["settings"].setdefault("modulations", [])  
+
     # Apply sensible default macro values if CC not provided
     macros = {
         "macro_control_1": cc_map.get(20, 0.5),  # Macro 1 - Filter Cutoff
@@ -1005,22 +1184,22 @@ def apply_macro_controls_to_preset(preset: Dict[str, Any], cc_map: Dict[int, flo
         "macro_control_3": cc_map.get(22, 0.5),  # Macro 3 - Reverb
         "macro_control_4": cc_map.get(23, 0.5),  # Macro 4 - Chorus
     }
-    
-    preset.update(macros)
-    
-    # Define modulations clearly in modulation matrix
-    preset["modulations"].extend([
+
+    preset["settings"].update(macros)  # 🔥 Ensure macros are inside "settings"
+
+    # Define modulations inside "settings"
+    preset["settings"]["modulations"].extend([
         {"source": "macro_control_1", "destination": "filter_1_cutoff", "amount": 0.8},
-        {"source": "macro_control_1", "destination": "osc_1_frame", "amount": 0.4},  # example additional modulation
+        {"source": "macro_control_1", "destination": "osc_1_frame", "amount": 0.4},
         {"source": "macro_control_2", "destination": "distortion_drive", "amount": 0.7},
-        {"source": "macro_control_2", "destination": "filter_2_resonance", "amount": 0.5},  # added complexity
+        {"source": "macro_control_2", "destination": "filter_2_resonance", "amount": 0.5},
         {"source": "macro_control_3", "destination": "reverb_dry_wet", "amount": 0.6},
-        {"source": "macro_control_3", "destination": "delay_feedback", "amount": 0.4},  # additional effect modulation
+        {"source": "macro_control_3", "destination": "delay_feedback", "amount": 0.4},
         {"source": "macro_control_4", "destination": "chorus_dry_wet", "amount": 0.5},
-        {"source": "macro_control_4", "destination": "phaser_feedback", "amount": 0.3},  # example extra modulation
+        {"source": "macro_control_4", "destination": "phaser_feedback", "amount": 0.3},
     ])
 
-    print("✅ Macro Controls applied with detailed modulations.")
+    logging.info("✅ Macro modulations successfully applied inside 'settings'.")
 
 
 def modify_vital_preset(vital_preset: Dict[str, Any],
@@ -1107,29 +1286,33 @@ def modify_vital_preset(vital_preset: Dict[str, Any],
         logging.info("❌ SMP NOT Enabled.")
     
     # 11) Apply filters using the modular function
-    apply_filters_to_preset(modified, cc_map)
+    apply_filters_to_preset(modified, cc_map, midi_data)
     
     # 12) Apply effects using the modular function
-    apply_effects_to_preset(modified, cc_map)
+    apply_effects_to_preset(modified, cc_map, midi_data)
     
     # 13) Apply LFO modulations (each with unique rate/depth settings)
-    build_lfo_from_cc(modified, midi_data, lfo_idx=1, destination="filter_1_cutoff")
-    build_lfo_from_cc(modified, midi_data, lfo_idx=2, destination="osc_1_pitch", one_shot=True)
-    build_lfo_from_cc(modified, midi_data, lfo_idx=3, destination="volume")
-    build_lfo_from_cc(modified, midi_data, lfo_idx=4, destination="filter_2_resonance")
-    
-    # 14) Append envelope modulations
-    modified.setdefault("modulations", [])
-    modified["modulations"].append({
+    lfo_targets = get_best_lfo_targets(midi_data)
+    build_lfo_from_cc(modified, midi_data, lfo_idx=1, destination=lfo_targets[0])
+    build_lfo_from_cc(modified, midi_data, lfo_idx=2, destination=lfo_targets[1], one_shot=True)
+    build_lfo_from_cc(modified, midi_data, lfo_idx=3, destination=lfo_targets[2])
+    build_lfo_from_cc(modified, midi_data, lfo_idx=4, destination=lfo_targets[3])
+
+    # 14) Append envelope modulations inside "settings"
+    modified.setdefault("settings", {})  # Ensure "settings" exists
+    modified["settings"].setdefault("modulations", [])  # Ensure "modulations" exists inside "settings"
+
+    modified["settings"]["modulations"].append({
         "source": "env_2",
         "destination": "filter_1_cutoff",
         "amount": 0.8
     })
-    modified["modulations"].append({
+    modified["settings"]["modulations"].append({
         "source": "env_3",
         "destination": "osc_1_warp",
         "amount": 0.6
     })
+
     
     # 15) Apply generated wavetable frames to the first oscillator keyframes
     if "groups" in modified and modified["groups"]:
@@ -1170,7 +1353,16 @@ def modify_vital_preset(vital_preset: Dict[str, Any],
                 replace_init_names(item, replacement_names, count)
     replace_init_names(modified, ["Attack Phase", "Harmonic Blend", "Final Release"])
     
-    # 18) Apply Macro Controls based on MIDI CC
+
+    # 18) Apply dynamic oscillator stack setting based on MIDI data
+    stack_setting = determine_oscillator_stack(midi_data)
+    modified["settings"]["osc_1_stack"] = stack_setting
+    modified["settings"]["osc_2_stack"] = stack_setting
+    modified["settings"]["osc_3_stack"] = stack_setting
+
+    logging.info(f"🎛️ Applying oscillator stack setting: {stack_setting}")
+    
+    # 19) Apply Macro Controls based on MIDI CC
     apply_macro_controls_to_preset(modified, cc_map)
 
     logging.info("✅ Finished applying wavetables, envelopes, LFOs, filters, effects, sample oscillator, macro controls, and custom oscillator settings.")
@@ -1208,22 +1400,37 @@ def save_vital_preset(vital_preset: Dict[str, Any],
     try:
         output_path: str = os.path.join(OUTPUT_DIR, get_preset_filename(midi_path))
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        vital_preset.setdefault("modulations", [])
+
+        # 🔥 Ensure misplaced root parameters are moved inside "settings"
+        vital_preset.setdefault("settings", {})
+
+        # 🔥 Move misplaced top-level parameters inside "settings"
+        params_to_move = ["osc_1_level", "osc_1_pan", "reverb_dry_wet", "chorus_dry_wet", "pitch_wheel"]
+        for param in params_to_move:
+            if param in vital_preset:
+                vital_preset["settings"][param] = vital_preset.pop(param)
+
+        vital_preset["settings"].setdefault("modulations", [])
+
         json_data: str = json.dumps(vital_preset, indent=2)
+
         if isinstance(frame_data_list, list) and len(frame_data_list) == 3:
             json_data = replace_three_wavetables(json_data, frame_data_list)
             logging.info("✅ Replaced wavetables in the preset.")
         else:
             logging.warning("⚠️ No valid wave_data provided or not exactly 3 frames.")
+
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(json_data)
+
         logging.info(f"✅ Successfully saved Vital preset as JSON: {output_path}")
         return output_path
+
     except OSError as e:
         logging.error(f"❌ File error when saving Vital preset: {e}")
     except json.JSONDecodeError as e:
         logging.error(f"❌ JSON encoding error: {e}")
     except Exception as e:
         logging.error(f"❌ Unexpected error in save_vital_preset: {e}")
-    return None
 
+    return None
