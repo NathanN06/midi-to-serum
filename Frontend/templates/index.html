@@ -5,41 +5,91 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>MIDI to Vital Preset Generator</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            primary: '#a855f7',
+            dark: '#1e1e2f'
+          }
+        }
+      }
+    }
+  </script>
 </head>
-<body class="bg-gray-900 text-white min-h-screen flex items-center justify-center px-4">
+<body class="bg-dark text-white min-h-screen flex flex-col items-center justify-center px-4">
+  <h1 class="text-3xl md:text-4xl font-bold mb-6 text-primary flex items-center gap-2">
+    🎛️ MIDI to Vital Preset Generator
+  </h1>
 
-  <div class="w-full max-w-xl text-center">
-    <h1 class="text-3xl md:text-4xl font-bold mb-6 text-violet-400">
-      🎛️ MIDI to Vital Preset Generator
-    </h1>
-
-    <form action="/upload" method="post" enctype="multipart/form-data"
-          class="bg-gray-800 border border-gray-700 rounded-2xl shadow-lg p-6 space-y-6">
-
-      <div>
-        <label class="block text-sm font-semibold mb-2" for="midi_file">
-          Upload your MIDI file
-        </label>
-        <input type="file" id="midi_file" name="midi_file"
-               accept=".mid,.midi"
-               required
-               class="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-xl
-                      file:border-0 file:text-sm file:font-semibold
-                      file:bg-violet-600 file:text-white
-                      hover:file:bg-violet-500 transition cursor-pointer bg-gray-700 rounded-xl p-2" />
-      </div>
-
-      <button type="submit"
-              class="w-full py-3 bg-violet-600 hover:bg-violet-500 text-white font-semibold rounded-xl transition">
-        🚀 Generate Vital Preset
+  <form id="uploadForm" method="POST" action="/upload" enctype="multipart/form-data" class="w-full max-w-lg">
+    <div
+      id="dropzone"
+      class="border-2 border-dashed border-gray-500 bg-gray-800 rounded-2xl p-10 flex flex-col items-center justify-center text-center transition duration-300 ease-in-out hover:border-primary hover:shadow-lg"
+    >
+      <p class="text-lg mb-2">Drag & Drop your MIDI file here</p>
+      <p class="text-sm text-gray-400 mb-4">or click to browse</p>
+      <input
+        type="file"
+        name="midi_file"
+        id="midiInput"
+        accept=".mid,.midi"
+        class="hidden"
+      />
+      <button
+        type="button"
+        onclick="document.getElementById('midiInput').click()"
+        class="px-4 py-2 mt-2 bg-primary text-white font-semibold rounded-xl hover:bg-purple-500 transition"
+      >
+        Browse Files
       </button>
-    </form>
+    </div>
 
-    <p class="text-sm text-gray-400 mt-6">
-      Upload a `.mid` or `.midi` file to generate a Vital preset.<br>
-      Your file will be automatically processed and ready to download.
-    </p>
-  </div>
+    <div id="fileName" class="text-center text-sm mt-3 text-gray-300"></div>
 
+    <button
+      type="submit"
+      class="mt-6 w-full bg-primary text-white font-bold py-3 rounded-xl shadow-md hover:shadow-xl hover:bg-purple-500 transition duration-300"
+    >
+      🚀 Generate Vital Preset
+    </button>
+  </form>
+
+  <p class="text-sm text-gray-400 mt-6 text-center">
+    Upload a <code>.mid</code> or <code>.midi</code> file to generate a Vital preset.<br />
+    Your file will be automatically processed and ready to download.
+  </p>
+
+  <script>
+    const dropzone = document.getElementById("dropzone");
+    const input = document.getElementById("midiInput");
+    const fileNameDisplay = document.getElementById("fileName");
+
+    dropzone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      dropzone.classList.add("border-primary", "bg-gray-700", "scale-105");
+    });
+
+    dropzone.addEventListener("dragleave", () => {
+      dropzone.classList.remove("border-primary", "bg-gray-700", "scale-105");
+    });
+
+    dropzone.addEventListener("drop", (e) => {
+      e.preventDefault();
+      dropzone.classList.remove("border-primary", "bg-gray-700", "scale-105");
+      const files = e.dataTransfer.files;
+      if (files.length > 0) {
+        input.files = files;
+        fileNameDisplay.textContent = `Selected: ${files[0].name}`;
+      }
+    });
+
+    input.addEventListener("change", () => {
+      if (input.files.length > 0) {
+        fileNameDisplay.textContent = `Selected: ${input.files[0].name}`;
+      }
+    });
+  </script>
 </body>
 </html>
