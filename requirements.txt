@@ -1,2 +1,4 @@
 pretty_midi==0.2.9
 pandas==1.5.3
+mido==1.2.10
+numpy==1.24.2
