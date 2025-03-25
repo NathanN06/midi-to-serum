@@ -7,8 +7,6 @@ from config import (
     DEFAULT_VITAL_PRESET_FILENAME,
     PRESETS_DIR,
     DEFAULT_OUTPUT_FILENAME,
-    SNAPSHOT_METHODS,
-    SNAPSHOT_ERROR_MESSAGE
 )
 
 # Configure logging
@@ -29,49 +27,10 @@ from vital_mapper import (
     save_vital_preset
 )
 
-
-### Helper Functions
-def get_valid_input(prompt, valid_options=None):
-    """
-    Helper function to get valid user input.
-    If valid_options is provided, ensures input is one of the valid choices.
-    """
-    while True:
-        user_input = input(prompt).strip().lower()
-        if valid_options and user_input not in valid_options:
-            logging.error(f"Invalid input. Please choose from {', '.join(valid_options)}.")
-        else:
-            return user_input
-
-
-def get_snapshot_method():
-    """
-    Prompts the user to select a snapshot method, ensuring valid input.
-    """
-    while True:
-        print("\nChoose a snapshot method:")
-        print("1: Use first note")
-        print("2: Use average of all notes")
-        print("3: Use a single moment in time")
-
-        user_input = input("Enter 1, 2, or 3 (or 'q' to quit): ").strip()
-
-        if user_input.lower() == "q":
-            logging.info("User exited snapshot method selection.")
-            return None  # Graceful exit
-
-        if user_input not in SNAPSHOT_METHODS:
-            logging.error(f"Invalid snapshot method selected: '{user_input}'")
-            print(SNAPSHOT_ERROR_MESSAGE)
-            continue
-
-        return user_input  # Return valid choice
-
-
 ### Modular Functions
 def get_user_inputs():
     """
-    Collect user inputs: MIDI file path, output path, and snapshot method (for Vital).
+    Collect user inputs: MIDI file path and output path.
     """
     # MIDI file path
     while True:
@@ -99,13 +58,7 @@ def get_user_inputs():
                 logging.error(f"Failed to create output directory '{output_dir}': {e}")
                 raise
 
-    # Snapshot method for Vital
-    snapshot_method = get_snapshot_method()
-    if snapshot_method is None:
-        logging.info("Snapshot method selection was cancelled by the user.")
-        raise SystemExit("User cancelled the snapshot selection. Exiting program.")
-
-    return midi_file, output_path, snapshot_method
+    return midi_file, output_path
 
 
 def parse_midi_file(midi_file):
@@ -132,7 +85,7 @@ def parse_midi_file(midi_file):
     return midi_data
 
 
-def generate_vital_preset(midi_data, output_path, snapshot_method):
+def generate_vital_preset(midi_data, output_path):
     """
     Generate a Vital preset from MIDI data, integrating a 3-frame wavetable.
     """
@@ -148,12 +101,11 @@ def generate_vital_preset(midi_data, output_path, snapshot_method):
         logging.error("Failed to load the default Vital preset.")
         return
 
-    # 2) Modify the preset using MIDI data (this calls your updated logic in 'modify_vital_preset')
+    # 2) Modify the preset using MIDI data
     logging.info("Modifying Vital preset to incorporate MIDI data and generate 3 wavetable frames...")
     modified_preset, frame_data_list = modify_vital_preset(
         vital_preset,
-        midi_data,
-        snapshot_method
+        midi_data
     )
 
     # 3) Save the new preset
@@ -169,14 +121,14 @@ def main():
     """
     try:
         # Collect user inputs
-        midi_file, output_path, snapshot_method = get_user_inputs()
+        midi_file, output_path = get_user_inputs()
 
         # Parse MIDI file into a data dict
         midi_data = parse_midi_file(midi_file)
 
         # Convert MIDI data into a Vital preset
         logging.info("Converting MIDI data to Vital preset...")
-        generate_vital_preset(midi_data, output_path, snapshot_method)
+        generate_vital_preset(midi_data, output_path)
 
         logging.info(f"🎉 Conversion complete! Preset saved to: {output_path}")
 

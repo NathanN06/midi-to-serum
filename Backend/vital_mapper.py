@@ -1205,8 +1205,7 @@ def apply_macro_controls_to_preset(preset: Dict[str, Any], cc_map: Dict[int, flo
 
 
 def modify_vital_preset(vital_preset: Dict[str, Any],
-                        midi_file: Any,
-                        snapshot_method: str = "1") -> Tuple[Dict[str, Any], List[str]]:
+                        midi_file: Any) -> Tuple[Dict[str, Any], List[str]]:
     """
     Modifies a Vital preset with MIDI data (notes, CCs, pitch bends, etc.)
     and returns the updated preset along with generated wavetable frame data.
@@ -1240,8 +1239,16 @@ def modify_vital_preset(vital_preset: Dict[str, Any],
 
     modified.setdefault("settings", {})
 
-    # 3) Snapshot method for OSC1 pitch/level
-    update_settings(modified, notes, snapshot_method)
+    # 3) Set OSC1 pitch and level based on average values
+    if notes:
+        avg_pitch = sum(n["pitch"] for n in notes) / len(notes)
+        avg_vel = sum(n["velocity"] for n in notes) / len(notes)
+        modified["settings"]["osc_1_transpose"] = avg_pitch - MIDI_PITCH_REFERENCE
+        modified["settings"]["osc_1_level"] = avg_vel / 127.0
+    else:
+        modified["settings"]["osc_1_transpose"] = DEFAULT_OSC_1_TRANSPOSE
+        modified["settings"]["osc_1_level"] = DEFAULT_OSC_1_LEVEL
+
 
     # 4) Apply all modulations: CCs, macros, mod wheel, envelopes, expression, etc.
     apply_modulations_to_preset(modified, midi_data)
