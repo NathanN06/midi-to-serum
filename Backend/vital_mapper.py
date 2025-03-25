@@ -132,6 +132,51 @@ from config import (
 from typing import Any, Dict, List, Optional, Tuple
 
 
+def map_velocity_to_macros_and_volume(preset: dict, midi_data: dict) -> None:
+    """
+    Maps velocity statistics from the MIDI file to musical parameters in the Vital preset.
+    Routes dynamic velocity to volume and macro modulation depths for expressive control.
+    
+    Args:
+        preset (dict): The Vital preset dictionary.
+        midi_data (dict): Parsed MIDI data including notes and CCs.
+    """
+    preset.setdefault("settings", {})
+    preset["settings"].setdefault("modulations", [])
+
+    stats = compute_midi_stats(midi_data)
+
+    avg_velocity = stats.get("avg_velocity", 80)
+    velocity_range = stats.get("velocity_range", 20)
+    velocity_std = stats.get("velocity_std", 10)
+    max_velocity = stats.get("max_velocity", 100)
+    min_velocity = stats.get("min_velocity", 40)
+
+    # Normalize values (0.0 - 1.0)
+    avg_vel_norm = avg_velocity / 127.0
+    range_norm = velocity_range / 127.0
+    std_norm = velocity_std / 127.0
+
+    # Route average velocity directly to volume level
+    preset["settings"]["volume"] = avg_vel_norm
+
+    # Route macro depths based on expressive velocity stats
+    preset["settings"].update({
+        "macro_control_1": 0.4 + range_norm * 0.6,  # Wide range = more modulation
+        "macro_control_2": 0.3 + std_norm * 0.7,    # High std = more dynamic
+        "macro_control_3": 0.2 + avg_vel_norm * 0.8,
+        "macro_control_4": 0.1 + (max_velocity - min_velocity) / 127.0 * 0.9
+    })
+
+    # Modulate expressive destinations
+    preset["settings"]["modulations"].extend([
+        {"source": "macro_control_1", "destination": "filter_1_cutoff", "amount": 0.8},
+        {"source": "macro_control_2", "destination": "distortion_drive", "amount": 0.7},
+        {"source": "macro_control_3", "destination": "reverb_dry_wet", "amount": 0.6},
+        {"source": "macro_control_4", "destination": "volume", "amount": 0.5}
+    ])
+
+
 def load_default_vital_preset(default_preset_path: str) -> Optional[Dict[str, Any]]:
     """
     Loads a default Vital preset, handling both compressed and uncompressed JSON,
@@ -1173,35 +1218,74 @@ def apply_full_oscillator_params_to_preset(preset: Dict[str, Any], midi_data: Di
 
 def apply_macro_controls_to_preset(preset: Dict[str, Any], cc_map: Dict[int, float]) -> None:
     """
-    Apply macros with meaningful modulation in the preset matrix.
+    Apply macros to dynamic modulation targets based on active filters and FX.
+    Velocity-based macro values should already be set. This only overrides with CCs if provided.
     """
-    # 🔥 Ensure "settings" and "modulations" exist inside it
-    preset.setdefault("settings", {})  
-    preset["settings"].setdefault("modulations", [])  
+    preset.setdefault("settings", {})
+    preset["settings"].setdefault("modulations", [])
+    settings = preset["settings"]
 
-    # Apply sensible default macro values if CC not provided
-    macros = {
-        "macro_control_1": cc_map.get(20, 0.5),  # Macro 1 - Filter Cutoff
-        "macro_control_2": cc_map.get(21, 0.5),  # Macro 2 - Distortion
-        "macro_control_3": cc_map.get(22, 0.5),  # Macro 3 - Reverb
-        "macro_control_4": cc_map.get(23, 0.5),  # Macro 4 - Chorus
-    }
+    # Step 1: Allow CCs to override macro values if present
+    for i in range(1, 5):
+        cc_num = 19 + i  # CC20-23
+        macro_key = f"macro_control_{i}"
+        if cc_num in cc_map:
+            settings[macro_key] = cc_map[cc_num]
 
-    preset["settings"].update(macros)  # 🔥 Ensure macros are inside "settings"
+    # Step 2: Detect active filters and effects
+    filter_1_active = settings.get("filter_1_on", 0.0) >= 1.0
+    filter_2_active = settings.get("filter_2_on", 0.0) >= 1.0
+    reverb_active = settings.get("reverb_on", 0.0) >= 1.0
+    delay_active = settings.get("delay_on", 0.0) >= 1.0
+    distortion_active = settings.get("distortion_on", 0.0) >= 1.0
+    chorus_active = settings.get("chorus_on", 0.0) >= 1.0
+    phaser_active = settings.get("phaser_on", 0.0) >= 1.0
 
-    # Define modulations inside "settings"
-    preset["settings"]["modulations"].extend([
-        {"source": "macro_control_1", "destination": "filter_1_cutoff", "amount": 0.8},
-        {"source": "macro_control_1", "destination": "osc_1_frame", "amount": 0.4},
-        {"source": "macro_control_2", "destination": "distortion_drive", "amount": 0.7},
-        {"source": "macro_control_2", "destination": "filter_2_resonance", "amount": 0.5},
-        {"source": "macro_control_3", "destination": "reverb_dry_wet", "amount": 0.6},
-        {"source": "macro_control_3", "destination": "delay_feedback", "amount": 0.4},
-        {"source": "macro_control_4", "destination": "chorus_dry_wet", "amount": 0.5},
-        {"source": "macro_control_4", "destination": "phaser_feedback", "amount": 0.3},
-    ])
+    # Step 3: Dynamically assign macro modulations
+    macro_mods = []
 
-    logging.info("✅ Macro modulations successfully applied inside 'settings'.")
+    # 🟣 Macro 1 → Main filter (whichever is on)
+    if filter_1_active:
+        macro_mods.extend([
+            {"source": "macro_control_1", "destination": "filter_1_cutoff", "amount": 0.8},
+            {"source": "macro_control_1", "destination": "osc_1_frame", "amount": 0.4},
+        ])
+    elif filter_2_active:
+        macro_mods.extend([
+            {"source": "macro_control_1", "destination": "filter_2_cutoff", "amount": 0.8},
+            {"source": "macro_control_1", "destination": "osc_2_frame", "amount": 0.4},
+        ])
+
+    # 🔥 Macro 2 → Distortion + filter2 resonance if used
+    if distortion_active:
+        macro_mods.append({"source": "macro_control_2", "destination": "distortion_drive", "amount": 0.7})
+    if filter_2_active:
+        macro_mods.append({"source": "macro_control_2", "destination": "filter_2_resonance", "amount": 0.5})
+
+    # 🌊 Macro 3 → Reverb or Delay
+    if reverb_active:
+        macro_mods.extend([
+            {"source": "macro_control_3", "destination": "reverb_dry_wet", "amount": 0.6},
+            {"source": "macro_control_3", "destination": "reverb_feedback", "amount": 0.3},
+        ])
+    elif delay_active:
+        macro_mods.extend([
+            {"source": "macro_control_3", "destination": "delay_dry_wet", "amount": 0.6},
+            {"source": "macro_control_3", "destination": "delay_feedback", "amount": 0.4},
+        ])
+
+    # 🎛️ Macro 4 → Chorus, Phaser, or fallback
+    if chorus_active:
+        macro_mods.append({"source": "macro_control_4", "destination": "chorus_dry_wet", "amount": 0.5})
+    if phaser_active:
+        macro_mods.append({"source": "macro_control_4", "destination": "phaser_feedback", "amount": 0.3})
+    if not (chorus_active or phaser_active):
+        macro_mods.append({"source": "macro_control_4", "destination": "delay_feedback", "amount": 0.3})
+
+    # Add to preset
+    settings["modulations"].extend(macro_mods)
+
+    logging.info(f"✅ Macro routing complete. {len(macro_mods)} dynamic modulations applied.")
 
 
 def modify_vital_preset(vital_preset: Dict[str, Any],
@@ -1239,15 +1323,8 @@ def modify_vital_preset(vital_preset: Dict[str, Any],
 
     modified.setdefault("settings", {})
 
-    # 3) Set OSC1 pitch and level based on average values
-    if notes:
-        avg_pitch = sum(n["pitch"] for n in notes) / len(notes)
-        avg_vel = sum(n["velocity"] for n in notes) / len(notes)
-        modified["settings"]["osc_1_transpose"] = avg_pitch - MIDI_PITCH_REFERENCE
-        modified["settings"]["osc_1_level"] = avg_vel / 127.0
-    else:
-        modified["settings"]["osc_1_transpose"] = DEFAULT_OSC_1_TRANSPOSE
-        modified["settings"]["osc_1_level"] = DEFAULT_OSC_1_LEVEL
+    # 3.5) Dynamically route velocity to volume & macros
+    map_velocity_to_macros_and_volume(modified, midi_data)
 
 
     # 4) Apply all modulations: CCs, macros, mod wheel, envelopes, expression, etc.
