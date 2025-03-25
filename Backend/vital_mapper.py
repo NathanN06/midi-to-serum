@@ -1438,27 +1438,24 @@ def get_preset_filename(midi_path: str) -> str:
 
 
 def save_vital_preset(vital_preset: Dict[str, Any],
-                      midi_path: str,
+                      output_path: str,
                       frame_data_list: Optional[List[str]] = None) -> Optional[str]:
     """
-    Saves the modified Vital preset as an uncompressed JSON file named after the MIDI file (with a .vital extension).
-    
+    Saves the modified Vital preset as an uncompressed JSON file to the given output_path.
+
     Args:
         vital_preset (Dict[str, Any]): The modified Vital preset data.
-        midi_path (str): The path to the original MIDI file.
+        output_path (str): Full path where the preset should be saved (.vital extension).
         frame_data_list (Optional[List[str]]): Optional list of 3 wavetable frames (base64 strings).
-    
+
     Returns:
         Optional[str]: The output file path if successful, None otherwise.
     """
     try:
-        output_path: str = os.path.join(OUTPUT_DIR, get_preset_filename(midi_path))
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
-        # 🔥 Ensure misplaced root parameters are moved inside "settings"
+        # 🔥 Move top-level parameters inside "settings"
         vital_preset.setdefault("settings", {})
-
-        # 🔥 Move misplaced top-level parameters inside "settings"
         params_to_move = ["osc_1_level", "osc_1_pan", "reverb_dry_wet", "chorus_dry_wet", "pitch_wheel"]
         for param in params_to_move:
             if param in vital_preset:
@@ -1477,7 +1474,7 @@ def save_vital_preset(vital_preset: Dict[str, Any],
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(json_data)
 
-        logging.info(f"✅ Successfully saved Vital preset as JSON: {output_path}")
+        logging.info(f"✅ Successfully saved Vital preset to: {output_path}")
         return output_path
 
     except OSError as e:

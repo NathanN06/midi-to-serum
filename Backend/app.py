@@ -1,141 +1,100 @@
+from flask import Flask, render_template, request, redirect, url_for, send_file
 import os
-import traceback
 import logging
+import tempfile
+from pathlib import Path
+from werkzeug.utils import secure_filename
+from flask import after_this_request
 
-# Import configuration from the current directory (Backend)
-from config import (
-    DEFAULT_VITAL_PRESET_FILENAME,
-    PRESETS_DIR,
-    DEFAULT_OUTPUT_FILENAME,
-)
 
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
-
-# Calculate the parent directory (one level up from Backend)
-parent_dir = os.path.abspath(
-    os.path.join(os.path.dirname(__file__), '..')
-)
-
+from config import DEFAULT_VITAL_PRESET_FILENAME, PRESETS_DIR
 from midi_parser import parse_midi
-from vital_mapper import (
-    load_default_vital_preset,
-    modify_vital_preset,
-    save_vital_preset
-)
+from vital_mapper import load_default_vital_preset, modify_vital_preset, save_vital_preset
 
-### Modular Functions
-def get_user_inputs():
-    """
-    Collect user inputs: MIDI file path and output path.
-    """
-    # MIDI file path
-    while True:
-        midi_file = input("🎵 Enter the path to the MIDI file: ").strip()
-        if os.path.isfile(midi_file):
-            break
-        logging.error(f"The specified MIDI file '{midi_file}' does not exist. Please try again.")
-        print("⚠️ The MIDI file path provided is invalid or does not exist.")
+# Set up Flask and directories
+template_dir = Path(__file__).resolve().parents[1] / "Frontend" / "templates"
+app = Flask(__name__, template_folder=str(template_dir))
 
-    # Output path with default filename if necessary
-    output_path = input("💾 Enter the output path for the Vital preset file (including filename): ").strip()
+UPLOAD_FOLDER = tempfile.mkdtemp()
+OUTPUT_FOLDER = os.path.abspath(os.path.join(os.path.dirname(__file__), "output"))
+os.makedirs(OUTPUT_FOLDER, exist_ok=True)
 
-    # Check if provided path is a directory
-    if os.path.isdir(output_path):
-        output_path = os.path.join(output_path, DEFAULT_OUTPUT_FILENAME)
-        logging.info(f"No file name provided. Defaulting to: {output_path}")
-    else:
-        # Ensure the directory of the output path exists
-        output_dir = os.path.dirname(output_path)
-        if output_dir and not os.path.exists(output_dir):
-            try:
-                os.makedirs(output_dir, exist_ok=True)
-                logging.info(f"Output directory '{output_dir}' created successfully.")
-            except OSError as e:
-                logging.error(f"Failed to create output directory '{output_dir}': {e}")
-                raise
-
-    return midi_file, output_path
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 
-def parse_midi_file(midi_file):
-    """
-    Parse the MIDI file and display a summary of its contents.
-    """
-    logging.info("Parsing MIDI file...")
-    midi_data = parse_midi(midi_file)
-
-    # Display summary
-    logging.info("Summary:")
-    logging.info(f"  - Notes: {len(midi_data['notes'])}")
-    logging.info(f"  - Control Changes: {len(midi_data['control_changes'])}")
-    logging.info(f"  - Pitch Bends: {len(midi_data['pitch_bends'])}")
-
-    if "time_signatures" in midi_data:
-        logging.info(f"  - Time Signatures: {len(midi_data['time_signatures'])}")
-    if "key_signatures" in midi_data:
-        logging.info(f"  - Key Signatures: {len(midi_data['key_signatures'])}")
-
-    if not midi_data["notes"]:
-        logging.warning("No MIDI notes found. The preset might not contain meaningful data.")
-
-    return midi_data
+@app.route("/")
+def index():
+    return render_template("index.html")
 
 
-def generate_vital_preset(midi_data, output_path):
-    """
-    Generate a Vital preset from MIDI data, integrating a 3-frame wavetable.
-    """
-    # 1) Find default Vital preset
-    default_preset_path = os.path.join(parent_dir, PRESETS_DIR, DEFAULT_VITAL_PRESET_FILENAME)
-    if not os.path.exists(default_preset_path):
-        logging.error(f"Default Vital preset {default_preset_path} not found.")
-        return
-
-    logging.info("Loading default Vital preset...")
-    vital_preset = load_default_vital_preset(default_preset_path)
-    if not vital_preset:
-        logging.error("Failed to load the default Vital preset.")
-        return
-
-    # 2) Modify the preset using MIDI data
-    logging.info("Modifying Vital preset to incorporate MIDI data and generate 3 wavetable frames...")
-    modified_preset, frame_data_list = modify_vital_preset(
-        vital_preset,
-        midi_data
-    )
-
-    # 3) Save the new preset
-    logging.info("Saving new Vital preset with 3-frame wavetable data...")
-    save_vital_preset(modified_preset, output_path, frame_data_list)
-    logging.info("✅ Vital preset generated successfully!")
-
-
-### Main Function
-def main():
-    """
-    Main function to orchestrate the MIDI-to-Vital conversion process.
-    """
+@app.route("/upload", methods=["POST"])
+def upload():
     try:
-        # Collect user inputs
-        midi_file, output_path = get_user_inputs()
+        if "midi_file" not in request.files:
+            return "No MIDI file uploaded.", 400
 
-        # Parse MIDI file into a data dict
-        midi_data = parse_midi_file(midi_file)
+        midi_file = request.files["midi_file"]
+        if midi_file.filename == "":
+            return "Empty filename.", 400
 
-        # Convert MIDI data into a Vital preset
-        logging.info("Converting MIDI data to Vital preset...")
-        generate_vital_preset(midi_data, output_path)
+        filename = secure_filename(midi_file.filename)
+        if not filename.lower().endswith((".mid", ".midi")):
+            return "Only MIDI files are supported.", 400
 
-        logging.info(f"🎉 Conversion complete! Preset saved to: {output_path}")
+        midi_path = os.path.join(UPLOAD_FOLDER, filename)
+        midi_file.save(midi_path)
+        logging.info(f"📥 Uploaded MIDI file saved to: {midi_path}")
+
+        # Load default Vital preset
+        default_preset_path = os.path.join(PRESETS_DIR, DEFAULT_VITAL_PRESET_FILENAME)
+        vital_preset = load_default_vital_preset(default_preset_path)
+        if not vital_preset:
+            logging.error("❌ Failed to load default Vital preset.")
+            return "Failed to load default Vital preset.", 500
+
+        # Parse and process MIDI
+        midi_data = parse_midi(midi_path)
+        modified_preset, frame_data_list = modify_vital_preset(vital_preset, midi_data)
+
+        # Save .vital file to OUTPUT_FOLDER
+        output_filename = f"{os.path.splitext(filename)[0]}.vital"
+        output_path = os.path.join(OUTPUT_FOLDER, output_filename)
+        save_vital_preset(modified_preset, output_path, frame_data_list)
+
+        # 🧹 Delete uploaded MIDI file to save memory
+        try:
+            os.remove(midi_path)
+            logging.info(f"🧹 Deleted uploaded MIDI file: {midi_path}")
+        except Exception as e:
+            logging.warning(f"⚠️ Could not delete MIDI file: {e}")
+
+        logging.info(f"✅ Preset saved: {output_path}")
+        return redirect(url_for("download", filename=output_filename))
 
     except Exception as e:
-        logging.error(f"An unexpected error occurred: {e}")
-        traceback.print_exc()
+        logging.exception("❌ Error during upload and processing.")
+        return f"Internal Server Error: {str(e)}", 500
+
+
+@app.route("/download/<filename>")
+def download(filename):
+    file_path = os.path.join(OUTPUT_FOLDER, filename)
+
+    if not os.path.exists(file_path):
+        logging.error(f"❌ Download failed. File not found: {file_path}")
+        return "File not found", 404
+
+    @after_this_request
+    def remove_file(response):
+        try:
+            os.remove(file_path)
+            logging.info(f"🧹 Deleted temporary preset: {file_path}")
+        except Exception as e:
+            logging.warning(f"⚠️ Could not delete file: {e}")
+        return response
+
+    return send_file(file_path, as_attachment=True)
 
 
 if __name__ == "__main__":
-    main()
+    app.run(debug=True, port=5000)
