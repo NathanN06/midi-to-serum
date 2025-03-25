@@ -969,47 +969,55 @@ def determine_oscillator_stack(midi_data):
 
 def apply_modulations_to_preset(preset: Dict[str, Any], midi_data: Dict[str, Any]) -> None:
     """
-    Applies MIDI CC-based and expression modulations to the Vital preset.
-    Also routes useful sources like mod wheel, macros, and expression to relevant destinations.
+    Applies advanced modulation logic to the Vital preset, based on MIDI CCs, note features, and expressive controls.
+    Dynamically adapts macro targets, routes mod wheel/expression, and enhances musicality.
     """
-    from config import MIDI_TO_VITAL_MAP
-    from midi_analysis import compute_midi_stats
 
     preset.setdefault("settings", {})
     preset["settings"].setdefault("modulations", [])
     modulations = []
 
-    # Extract CC map from MIDI data
-    cc_map: Dict[int, float] = {
-        cc["controller"]: cc["value"] / 127.0
-        for cc in midi_data.get("control_changes", [])
-    }
+    # === Extract MIDI data ===
+    ccs = midi_data.get("control_changes", [])
+    cc_map = {cc["controller"]: cc["value"] / 127.0 for cc in ccs}
+    stats = compute_midi_stats(midi_data)
 
-    # === 1. Map CCs directly to parameters (from config) ===
+    avg_vel = stats.get("avg_velocity", 80) / 127.0
+    pitch_range = stats.get("pitch_range", 12)
+    note_density = stats.get("note_density", 4.0)
+    expressive = any(cc in cc_map for cc in [1, 11])
+
+    # === 1. Map CCs directly to parameters ===
     for cc_num, cc_val in cc_map.items():
         if cc_num in MIDI_TO_VITAL_MAP:
             param = MIDI_TO_VITAL_MAP[cc_num]
             preset["settings"][param] = cc_val
-            print(f"✅ CC{cc_num} -> {param} = {cc_val}")
+            print(f"✅ CC{cc_num} -> {param} = {cc_val:.2f}")
 
-    # === 2. Add modulations from common CCs ===
-    if 1 in cc_map:  # Mod wheel
-        mod_val = cc_map[1]
-        if mod_val > 0.1:
-            modulations.append({
-                "source": "mod_wheel",
-                "destination": "filter_1_cutoff",
-                "amount": mod_val * 0.8
-            })
-
-    if 11 in cc_map:  # Expression pedal
+    # === 2. Mod Wheel / Expression ===
+    if 1 in cc_map and cc_map[1] > 0.05:
+        modulations.append({
+            "source": "mod_wheel",
+            "destination": "filter_1_cutoff",
+            "amount": cc_map[1] * 0.8
+        })
+    if 11 in cc_map:
         modulations.append({
             "source": "cc_expression",
             "destination": "volume",
             "amount": cc_map[11]
         })
 
-    # === 3. Add useful macro modulations ===
+    # === 3. Dynamic Macro Routing ===
+    # Detect active filters and dominant FX
+    filter_dest = "filter_1_cutoff" if preset["settings"].get("filter_1_on", 0.0) else "filter_2_cutoff"
+    fx_strengths = {
+        fx: cc_map.get(cc, 0.0) for fx, cc in EFFECTS_CC_MAP.items()
+    }
+    main_fx = max(fx_strengths.items(), key=lambda x: x[1])[0] if fx_strengths else "reverb"
+    main_fx_param = f"{main_fx}_dry_wet" if main_fx in ["reverb", "delay", "chorus"] else f"{main_fx}_drive"
+
+    # Macro sources
     macros = {
         "macro_control_1": cc_map.get(20, 0.5),
         "macro_control_2": cc_map.get(21, 0.5),
@@ -1019,26 +1027,39 @@ def apply_modulations_to_preset(preset: Dict[str, Any], midi_data: Dict[str, Any
     preset["settings"].update(macros)
 
     modulations.extend([
-        {"source": "macro_control_1", "destination": "filter_1_cutoff", "amount": 0.8},
-        {"source": "macro_control_2", "destination": "distortion_drive", "amount": 0.7},
-        {"source": "macro_control_3", "destination": "reverb_dry_wet", "amount": 0.6},
-        {"source": "macro_control_4", "destination": "chorus_dry_wet", "amount": 0.5},
+        {"source": "macro_control_1", "destination": filter_dest, "amount": 0.8},
+        {"source": "macro_control_2", "destination": "osc_1_warp", "amount": 0.7},
+        {"source": "macro_control_3", "destination": main_fx_param, "amount": 0.6},
+        {"source": "macro_control_4", "destination": "lfo_1_frequency", "amount": 0.5},
     ])
 
-    # === 4. Add envelope modulations (predefined, later can be dynamic) ===
+    # === 4. Envelope modulations ===
     modulations.extend([
-        {"source": "env_2", "destination": "filter_1_cutoff", "amount": 0.8},
-        {"source": "env_3", "destination": "osc_1_warp", "amount": 0.6},
+        {"source": "env_2", "destination": filter_dest, "amount": 0.8},
+        {"source": "env_3", "destination": "osc_1_frame", "amount": 0.6},
     ])
 
-    # === 5. Optionally use pitch bend stats ===
+    # === 5. Adaptive pitch modulation ===
+    if pitch_range > 12:
+        modulations.append({
+            "source": "lfo_2",
+            "destination": "osc_1_pitch",
+            "amount": 0.4 + (pitch_range / 48.0)
+        })
+    if note_density > 5.0:
+        modulations.append({
+            "source": "lfo_3",
+            "destination": "filter_2_resonance",
+            "amount": 0.3 + (note_density / 20.0)
+        })
+
+    # === 6. Pitch bend detection ===
     if any(pb["pitch"] > 0.1 for pb in midi_data.get("pitch_bends", [])):
         preset["settings"]["pitch_bend_range"] = 12
 
-    # ✅ Apply the modulations
+    # === Finalize ===
     preset["settings"]["modulations"] = modulations
-
-    print("✅ All modulations applied dynamically.")
+    print(f"✅ {len(modulations)} modulations applied dynamically.")
 
 
 def replace_three_wavetables(json_data: str, frame_data_list: List[str]) -> str:
