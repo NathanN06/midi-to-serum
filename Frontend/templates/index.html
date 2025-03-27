@@ -11,7 +11,22 @@
         extend: {
           colors: {
             primary: '#a855f7',
-            dark: '#1e1e2f'
+            dark: '#1e1e2f',
+            success: '#10b981'
+          },
+          keyframes: {
+            bounceUp: {
+              '0%, 100%': { transform: 'translateY(0)' },
+              '50%': { transform: 'translateY(-4px)' }
+            },
+            fadeIn: {
+              '0%': { opacity: '0' },
+              '100%': { opacity: '1' }
+            }
+          },
+          animation: {
+            bounceUp: 'bounceUp 0.6s ease-in-out',
+            fadeIn: 'fadeIn 0.5s ease-out'
           }
         }
       }
@@ -19,52 +34,69 @@
   </script>
 </head>
 <body class="bg-dark text-white min-h-screen flex flex-col items-center justify-center px-4">
-  <h1 class="text-3xl md:text-4xl font-bold mb-6 text-primary flex items-center gap-2">
+  <h1 class="text-3xl md:text-4xl font-bold mb-6 text-primary flex items-center gap-2 animate-fadeIn">
     🎛️ MIDI to Vital Preset Generator
   </h1>
 
-  <form id="uploadForm" method="POST" action="/upload" enctype="multipart/form-data" class="w-full max-w-lg">
+  <form id="uploadForm" method="POST" action="/upload" enctype="multipart/form-data" class="w-full max-w-lg animate-fadeIn">
     <div
       id="dropzone"
-      class="border-2 border-dashed border-gray-500 bg-gray-800 rounded-2xl p-10 flex flex-col items-center justify-center text-center transition duration-300 ease-in-out hover:border-primary hover:shadow-lg"
+      class="border-2 border-dashed border-gray-500 bg-gray-800 rounded-2xl p-10 flex flex-col items-center justify-center text-center transition-all duration-300 ease-in-out hover:border-primary hover:shadow-lg hover:scale-105"
     >
-      <p class="text-lg mb-2">Drag & Drop your MIDI file here</p>
+      <p class="text-lg mb-2">Drag & Drop your MIDI files here</p>
       <p class="text-sm text-gray-400 mb-4">or click to browse</p>
       <input
         type="file"
         name="midi_file"
         id="midiInput"
         accept=".mid,.midi"
+        multiple
         class="hidden"
       />
       <button
         type="button"
         onclick="document.getElementById('midiInput').click()"
-        class="px-4 py-2 mt-2 bg-primary text-white font-semibold rounded-xl hover:bg-purple-500 transition"
+        class="px-4 py-2 mt-2 bg-primary text-white font-semibold rounded-xl hover:bg-purple-500 transition duration-300 animate-bounceUp"
       >
         Browse Files
       </button>
     </div>
 
-    <div id="fileName" class="text-center text-sm mt-3 text-gray-300"></div>
+    <ul id="fileList" class="text-center text-sm mt-3 text-success font-medium animate-fadeIn space-y-1"></ul>
+
+    <div id="progressBar" class="w-full h-2 bg-gray-600 rounded-full mt-4 hidden">
+      <div id="progressFill" class="h-full bg-primary rounded-full transition-all duration-500" style="width: 0%"></div>
+    </div>
 
     <button
       type="submit"
-      class="mt-6 w-full bg-primary text-white font-bold py-3 rounded-xl shadow-md hover:shadow-xl hover:bg-purple-500 transition duration-300"
+      class="mt-6 w-full bg-primary text-white font-bold py-3 rounded-xl shadow-md hover:shadow-xl hover:bg-purple-500 transition duration-300 animate-fadeIn"
     >
-      🚀 Generate Vital Preset
+      🚀 Generate Vital Presets
     </button>
   </form>
 
-  <p class="text-sm text-gray-400 mt-6 text-center">
-    Upload a <code>.mid</code> or <code>.midi</code> file to generate a Vital preset.<br />
-    Your file will be automatically processed and ready to download.
+  <p class="text-sm text-gray-400 mt-6 text-center animate-fadeIn">
+    Upload one or more <code>.mid</code> or <code>.midi</code> files to generate Vital presets.<br />
+    Your files will be automatically processed and ready to download.
   </p>
 
   <script>
     const dropzone = document.getElementById("dropzone");
     const input = document.getElementById("midiInput");
-    const fileNameDisplay = document.getElementById("fileName");
+    const fileList = document.getElementById("fileList");
+    const form = document.getElementById("uploadForm");
+    const progressBar = document.getElementById("progressBar");
+    const progressFill = document.getElementById("progressFill");
+
+    function updateFileList(files) {
+      fileList.innerHTML = "";
+      Array.from(files).forEach(file => {
+        const li = document.createElement("li");
+        li.textContent = `✅ ${file.name}`;
+        fileList.appendChild(li);
+      });
+    }
 
     dropzone.addEventListener("dragover", (e) => {
       e.preventDefault();
@@ -81,14 +113,27 @@
       const files = e.dataTransfer.files;
       if (files.length > 0) {
         input.files = files;
-        fileNameDisplay.textContent = `Selected: ${files[0].name}`;
+        updateFileList(files);
       }
     });
 
     input.addEventListener("change", () => {
       if (input.files.length > 0) {
-        fileNameDisplay.textContent = `Selected: ${input.files[0].name}`;
+        updateFileList(input.files);
       }
+    });
+
+    form.addEventListener("submit", () => {
+      progressBar.classList.remove("hidden");
+      let width = 0;
+      const interval = setInterval(() => {
+        if (width >= 100) {
+          clearInterval(interval);
+        } else {
+          width += 10;
+          progressFill.style.width = width + "%";
+        }
+      }, 100);
     });
   </script>
 </body>

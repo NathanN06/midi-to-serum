@@ -972,6 +972,37 @@ def generate_three_frame_wavetables(midi_data: Dict[str, Any],
     return frames
 
 
+def replace_three_wavetables(json_data: str, frame_data_list: List[str]) -> str:
+    """
+    Finds the first 3 "wave_data" fields in the JSON, replaces them with the
+    provided base64-encoded frames, and returns the modified JSON string.
+    
+    Args:
+        json_data (str): The JSON string containing the preset data.
+        frame_data_list (List[str]): A list of 3 base64-encoded wavetable frames.
+        
+    Returns:
+        str: The modified JSON string with the replaced "wave_data" entries.
+    """
+    pattern = r'"wave_data"\s*:\s*"[^"]*"'
+    matches = list(re.finditer(pattern, json_data))
+
+    if len(matches) < 3:
+        print(f"⚠️ Warning: Only {len(matches)} 'wave_data' entries found. Need 3+.")
+        replace_count = min(len(matches), 3)
+    else:
+        replace_count = 3
+
+    result = json_data
+    for i in range(replace_count):
+        start, end = matches[i].span()
+        replacement = f'"wave_data": "{frame_data_list[i]}"'
+        result = result[:start] + replacement + result[end:]
+    
+    print(f"✅ Replaced wave_data in {replace_count} place(s).")
+    return result
+
+
 def determine_oscillator_stack(midi_data):
     """Determine the best oscillator stack setting based on MIDI note intervals."""
     notes = sorted(set(note["pitch"] for note in midi_data.get("notes", [])))  # Get unique sorted pitches
@@ -1107,36 +1138,6 @@ def apply_modulations_to_preset(preset: Dict[str, Any], midi_data: Dict[str, Any
     print(f"✅ {len(modulations)} modulations applied dynamically.")
 
 
-def replace_three_wavetables(json_data: str, frame_data_list: List[str]) -> str:
-    """
-    Finds the first 3 "wave_data" fields in the JSON, replaces them with the
-    provided base64-encoded frames, and returns the modified JSON string.
-    
-    Args:
-        json_data (str): The JSON string containing the preset data.
-        frame_data_list (List[str]): A list of 3 base64-encoded wavetable frames.
-        
-    Returns:
-        str: The modified JSON string with the replaced "wave_data" entries.
-    """
-    pattern = r'"wave_data"\s*:\s*"[^"]*"'
-    matches = list(re.finditer(pattern, json_data))
-
-    if len(matches) < 3:
-        print(f"⚠️ Warning: Only {len(matches)} 'wave_data' entries found. Need 3+.")
-        replace_count = min(len(matches), 3)
-    else:
-        replace_count = 3
-
-    result = json_data
-    for i in range(replace_count):
-        start, end = matches[i].span()
-        replacement = f'"wave_data": "{frame_data_list[i]}"'
-        result = result[:start] + replacement + result[end:]
-    
-    print(f"✅ Replaced wave_data in {replace_count} place(s).")
-    return result
-
 
 def derive_full_oscillator_params(stats: Dict[str, float], osc_index: int) -> Dict[str, Any]:
     """
@@ -1245,16 +1246,20 @@ def apply_macro_controls_to_preset(preset: Dict[str, Any], cc_map: Dict[int, flo
     macro_mods = []
 
     # 🟣 Macro 1 → Main filter (whichever is on)
-    if filter_1_active:
-        macro_mods.extend([
-            {"source": "macro_control_1", "destination": "filter_1_cutoff", "amount": 0.8},
-            {"source": "macro_control_1", "destination": "osc_1_frame", "amount": 0.4},
-        ])
-    elif filter_2_active:
-        macro_mods.extend([
-            {"source": "macro_control_1", "destination": "filter_2_cutoff", "amount": 0.8},
-            {"source": "macro_control_1", "destination": "osc_2_frame", "amount": 0.4},
-        ])
+    existing_macro1_routes = [mod for mod in settings["modulations"] if mod.get("source") == "macro1"]
+    if existing_macro1_routes:
+        logging.info("🛡️ Skipping Macro 1 routing – already dynamically handled.")
+    else:
+        if filter_1_active:
+            macro_mods.extend([
+                {"source": "macro_control_1", "destination": "filter_1_cutoff", "amount": 0.8},
+                {"source": "macro_control_1", "destination": "osc_1_frame", "amount": 0.4},
+            ])
+        elif filter_2_active:
+            macro_mods.extend([
+                {"source": "macro_control_1", "destination": "filter_2_cutoff", "amount": 0.8},
+                {"source": "macro_control_1", "destination": "osc_2_frame", "amount": 0.4},
+            ])
 
     # 🔥 Macro 2 → Distortion + filter2 resonance if used
     if distortion_active:
@@ -1296,6 +1301,7 @@ def modify_vital_preset(vital_preset: Dict[str, Any],
     """
     logging.info(f"🔍 Debug: Received midi_file of type {type(midi_file)}")
 
+    
     # 1) Parse MIDI data
     try:
         if isinstance(midi_file, dict):
@@ -1309,6 +1315,35 @@ def modify_vital_preset(vital_preset: Dict[str, Any],
     except Exception as e:
         logging.error(f"❌ Error parsing MIDI: {e}")
         midi_data = {"notes": [], "control_changes": [], "pitch_bends": []}
+
+    # 1.5) Compute MIDI stats
+    stats = compute_midi_stats(midi_data)
+    logging.info(f"📊 MIDI Stats: {stats}")
+
+    # 2) Deep-copy the preset
+    modified: Dict[str, Any] = copy.deepcopy(vital_preset)
+
+    # Ensure modulations list exists
+    modified.setdefault("modulations", [])
+
+    # 🎯 STEP 2: Route macro1 based on pitch range
+    if stats.get("pitch_range", 0) > 12:
+        # Wide pitch range = more aggressive macro target
+        modified["modulations"].append({
+            "source": "macro1",
+            "target": "osc_1_warp",
+            "amount": 0.5
+        })
+        logging.info("🎚️ Routed macro1 to osc_1_warp due to wide pitch range.")
+    else:
+        # Narrow pitch range = gentler modulation
+        modified["modulations"].append({
+            "source": "macro1",
+            "target": "filter_1_cutoff",
+            "amount": -0.3
+        })
+        logging.info("🎚️ Routed macro1 to filter_1_cutoff due to narrow pitch range.")
+
 
     # 2) Deep-copy the preset
     modified: Dict[str, Any] = copy.deepcopy(vital_preset)
