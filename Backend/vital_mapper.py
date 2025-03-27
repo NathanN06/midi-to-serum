@@ -122,6 +122,7 @@ from config import (
     FILTER_2_DRIVE_CC,
     FILTER_2_KEYTRACK_CC,
     FILTER_2_MIX_CC,
+    OSC_SHAPE_POOLS,
 
 )
 
@@ -825,171 +826,196 @@ def update_settings(modified_preset: Dict[str, Any], notes: List[Dict[str, Any]]
             modified_preset["settings"]["osc_1_level"] = DEFAULT_OSC_1_LEVEL
 
 
-def generate_frame_waveform(midi_data: Dict[str, Any],
-                            frame_idx: int,
-                            num_frames: int,
-                            frame_size: int,
-                            waveform_type: str = "saw") -> np.ndarray:
+def get_shape_for_osc1(stats):
     """
-    Generate a single float32 waveform frame for Vital.
-    Dynamically scales harmonics based on velocity/CC plus a morph factor.
-    
-    Args:
-        midi_data (Dict[str, Any]): Parsed MIDI data.
-        frame_idx (int): Index of the frame.
-        num_frames (int): Total number of frames.
-        frame_size (int): The number of samples in the frame.
-        waveform_type (str, optional): Type of waveform ("sine", "saw", "square", "triangle", "pulse"). Defaults to "saw".
-    
-    Returns:
-        np.ndarray: The generated waveform as a float32 array.
+    OSC1 → Attack Phase: sharper = more aggression
     """
-    # Get MIDI notes and CC mapping
-    notes: List[Dict[str, Any]] = midi_data.get("notes", [])
-    ccs: Dict[int, float] = {cc["controller"]: cc["value"] / 127.0 for cc in midi_data.get("control_changes", [])}
-    
-    if not notes:
-        notes = [{"pitch": 69, "velocity": 100}]
-    
-    note: Dict[str, Any] = notes[frame_idx % len(notes)]
-    pitch: float = note["pitch"]
-    velocity: float = note["velocity"] / 127.0
+    velocity_range = stats.get("velocity_range", 0)
+    velocity_std = stats.get("velocity_std", 0)
+    avg_velocity = stats.get("avg_velocity", 80)
+    avg_pitch = stats.get("avg_pitch", 60)
+    note_density = stats.get("note_density", 0.02)
 
-    # Use CC1 (mod wheel) for harmonic boost
-    harmonic_boost: float = np.float32(
-        np.float32(1) * np.float32(1)  # placeholder; uses HARMONIC_SCALING and CC1 in your original code
-    )
-    if "HARMONIC_SCALING" in globals():
-        harmonic_boost = HARMONIC_SCALING.get(waveform_type, 1) * ccs.get(1, 0.5)
+    if avg_velocity > 110 and note_density > 0.035:
+        return "folded"
+    elif note_density > 0.05 and velocity_range > 80:
+        return "saw"
+    elif velocity_std > 25 and avg_pitch < 55:
+        return "triangle"
+    elif note_density < 0.015:
+        return "sine"
+    else:
+        return random.choice(["folded", "saw", "sine"])
 
-    # Build phase array
-    phase: np.ndarray = np.linspace(0, 2 * np.pi, frame_size, endpoint=False)
-    
-    # Compute morph factor (0..1 across frames)
-    morph: float = frame_idx / (num_frames - 1) if num_frames > 1 else 0
-    harmonic_intensity: float = (velocity * harmonic_boost) * (0.5 + 0.5 * morph)
-    
-    # Construct the waveform based on type
-    if waveform_type == "sine":
-        waveform = np.sin(phase)
-    elif waveform_type == "saw":
-        max_harm: int = int(10 * harmonic_intensity) or 1
-        waveform = np.sum([(1.0 / h) * np.sin(h * phase) for h in range(1, max_harm)], axis=0)
-    elif waveform_type == "square":
-        max_harm = int(10 * harmonic_intensity) or 1
-        waveform = np.sum([(1.0 / h) * np.sin(h * phase) for h in range(1, max_harm, 2)], axis=0)
-    elif waveform_type == "triangle":
-        max_harm = int(10 * harmonic_intensity) or 1
-        waveform = np.sum([(1.0 / (h**2)) * (-1)**((h-1)//2) * np.sin(h * phase) for h in range(1, max_harm, 2)], axis=0)
-    elif waveform_type == "pulse":
-        pulse_width: float = ccs.get(2, 0.5)
-        waveform = np.where(phase < (2 * np.pi * pulse_width), 1.0, -1.0)
+
+def get_shape_for_osc2(stats):
+    """
+    OSC2 → Harmonic Blend: richer or fuzzier based on pitch spread
+    """
+    pitch_range = stats.get("pitch_range", 12)
+    note_density = stats.get("note_density", 0.02)
+    velocity_range = stats.get("velocity_range", 0)
+    avg_pitch = stats.get("avg_pitch", 60)
+    velocity_std = stats.get("velocity_std", 0)
+
+    if pitch_range > 60 and note_density > 0.03:
+        return "chaotic"
+    elif note_density > 0.04 and velocity_range > 50:
+        return "harmonic_buzz"
+    elif avg_pitch > 72 and velocity_std < 20:
+        return "triangle"
+    elif pitch_range < 10:
+        return "sine"
+    else:
+        return random.choice(["chaotic", "harmonic_buzz", "triangle", "saw"])
+
+
+def get_shape_for_osc3(stats):
+    """
+    OSC3 → Final Release: smoother or noisier based on decay needs
+    """
+    avg_velocity = stats.get("avg_velocity", 80)
+    velocity_std = stats.get("velocity_std", 0)
+    pitch_range = stats.get("pitch_range", 12)
+    note_density = stats.get("note_density", 0.02)
+    velocity_range = stats.get("velocity_range", 0)
+
+    if avg_velocity < 35 or velocity_std > 35:
+        return "triangle"
+    elif pitch_range < 10 and note_density < 0.02:
+        return "sine"
+    elif note_density > 0.045 and velocity_range > 40:
+        return "folded"
+    elif velocity_range == 0:
+        return "sine"
+    else:
+        return random.choice(["triangle", "folded", "sine"])
+
+
+def generate_osc1_frame(midi_data: Dict[str, Any], frame_size: int = DEFAULT_FRAME_SIZE, shape: str = "sine") -> str:
+    import base64, random
+    from midi_analysis import compute_midi_stats
+
+    stats = compute_midi_stats(midi_data)
+    velocity = stats.get("avg_velocity", 0.5)
+    pitch_range = stats.get("pitch_range", 12)
+    note_density = stats.get("note_density", 4.0)
+    ccs = {cc["controller"]: cc["value"] / 127.0 for cc in midi_data.get("control_changes", [])}
+    modwheel = ccs.get(1, 0.5)
+    rng = random.Random(int(stats["avg_pitch"] * 1234))
+
+    phase = np.linspace(0, 2 * np.pi, frame_size, endpoint=False)
+
+    if shape == "sine":
+        waveform = np.sin(phase + modwheel * np.sin(phase * 2))
+    elif shape == "saw":
+        max_h = int(6 + pitch_range + note_density)
+        waveform = np.sum([
+            (1.0 / h) * np.sin(h * phase + rng.uniform(0, 0.2))
+            for h in range(1, max_h)
+        ], axis=0)
+    elif shape == "triangle":
+        base = 2 * np.abs(np.mod(phase / np.pi, 2) - 1) - 1
+        harmonic = 0.3 * np.sin(phase * 3 + modwheel * 2)
+        waveform = base + harmonic
+    elif shape == "folded":
+        folded = np.tanh(2.5 * np.sin(phase + modwheel * np.pi))
+        noise = 0.1 * rng.uniform(-1, 1) * np.sin(phase * rng.randint(2, 5))
+        waveform = folded + noise
     else:
         waveform = np.sin(phase)
-    
-    waveform *= harmonic_intensity
-    max_val: float = np.max(np.abs(waveform)) or 1.0
-    waveform /= max_val
-    
-    return waveform.astype(np.float32)
+
+    waveform *= velocity
+    waveform /= (np.max(np.abs(waveform)) or 1.0)
+    return base64.b64encode(waveform.astype(np.float32).tobytes()).decode("utf-8")
 
 
-def generate_three_frame_wavetables(midi_data: Dict[str, Any],
-                                    num_frames: int = DEFAULT_NUM_WAVETABLE_FRAMES,
-                                    frame_size: int = DEFAULT_FRAME_SIZE) -> List[str]:
-    """
-    Generate structured wavetable frames for Vital:
-    - Frame 1: Blended sine & saw (attack phase)
-    - Frame 2: Complex harmonics + stronger FM synthesis (sustain phase)
-    - Frame 3: Pulsating saw-triangle blend with deeper phase distortion (release phase)
+def generate_osc2_frame(midi_data: Dict[str, Any], frame_size: int = DEFAULT_FRAME_SIZE, shape: str = "saw") -> str:
+    import base64, random
+    from midi_analysis import compute_midi_stats
 
-    Args:
-        midi_data (Dict[str, Any]): Parsed MIDI data.
-        num_frames (int, optional): Number of frames to generate. Defaults to DEFAULT_NUM_WAVETABLE_FRAMES.
-        frame_size (int, optional): Frame size. Defaults to DEFAULT_FRAME_SIZE.
+    stats = compute_midi_stats(midi_data)
+    velocity = stats.get("avg_velocity", 0.5)
+    pitch_range = stats.get("pitch_range", 12)
+    note_density = stats.get("note_density", 4.0)
+    rng = random.Random(int(stats["avg_pitch"] * 4321))
 
-    Returns:
-        List[str]: A list of base64-encoded wavetable frames.
-    """
-    import base64
+    phase = np.linspace(0, 2 * np.pi, frame_size, endpoint=False)
 
-    # Extract MIDI notes and control changes
-    notes: List[Dict[str, Any]] = midi_data.get("notes", [])
-    ccs: Dict[int, float] = {cc["controller"]: cc["value"] / 127.0 for cc in midi_data.get("control_changes", [])}
+    if shape == "saw":
+        max_harm = int(8 + pitch_range + note_density)
+        waveform = np.sum([
+            (1.0 / h) * np.sin(h * phase + rng.uniform(0, 0.3))
+            for h in range(1, max_harm)
+        ], axis=0)
+    elif shape == "harmonic_buzz":
+        base = np.sum([
+            np.sin(h * phase + rng.uniform(0, 0.1)) * (1.0 / (h ** 0.9))
+            for h in range(1, 20)
+        ], axis=0)
+        detune = 0.1 * np.sin(phase * rng.randint(2, 6))
+        waveform = base + detune
+    elif shape == "chaotic":
+        fm = np.sin(phase * (2 + note_density)) * 0.6
+        waveform = np.tanh(np.sin(phase * 2 + fm) + np.cos(phase * 3))
+    else:
+        waveform = np.sin(phase)
 
-    # Default to middle A (A4) if no notes exist
-    if not notes:
-        notes = [{"pitch": DEFAULT_PITCH_REFERENCE, "velocity": 100}]
+    waveform *= velocity
+    waveform /= (np.max(np.abs(waveform)) or 1.0)
+    return base64.b64encode(waveform.astype(np.float32).tobytes()).decode("utf-8")
 
-    first_note: Dict[str, Any] = notes[0]
-    last_note: Dict[str, Any] = notes[-1]
-    avg_pitch: float = sum(n["pitch"] for n in notes) / len(notes)
-    avg_velocity: float = sum(n["velocity"] for n in notes) / len(notes)
 
-    frames: List[str] = []
-    for i, note in enumerate([first_note, {"pitch": avg_pitch, "velocity": avg_velocity}, last_note]):
-        pitch: float = note["pitch"]
-        velocity: float = note["velocity"] / 127.0
+def generate_osc3_frame(midi_data: Dict[str, Any], frame_size: int = DEFAULT_FRAME_SIZE, shape: str = "triangle") -> str:
+    import base64, random
+    from midi_analysis import compute_midi_stats
 
-        # Use CC1 (mod wheel) for harmonic boost.
-        harmonic_boost: float = HARMONIC_SCALING.get(DEFAULT_WAVEFORM_TYPE, 1) * (ccs.get(1, 0.5) + 0.5)
+    stats = compute_midi_stats(midi_data)
+    velocity = stats.get("avg_velocity", 0.5)
+    pitch_range = stats.get("pitch_range", 12)
+    avg_pitch = stats.get("avg_pitch", 60.0)
+    rng = random.Random(int(avg_pitch * 5678))
 
-        # Generate phase array
-        phase: np.ndarray = np.linspace(0, 2 * np.pi, frame_size, endpoint=False)
+    phase = np.linspace(0, 2 * np.pi, frame_size, endpoint=False)
 
-        if i == 0:
-            # **Frame 1: Sine + bright saw blend for attack phase**
-            sine_wave = np.sin(phase) * velocity
-            saw_wave = np.sum([(1.0 / h) * np.sin(h * phase) for h in range(1, 8)], axis=0) * (velocity * SAW_BLEND_RATIO)
-            waveform = sine_wave + saw_wave
+    if shape == "triangle":
+        tri = 2 * np.abs(np.mod(phase / np.pi, 2) - 1) - 1
+        shimmer = 0.2 * np.sin(phase * 4 + pitch_range * 0.1)
+        waveform = tri + shimmer
+    elif shape == "folded":
+        base = np.tanh(3.0 * np.sin(phase + np.sin(phase * 3)))
+        motion = 0.2 * np.sin(phase * rng.randint(2, 5) + avg_pitch * 0.05)
+        waveform = base + motion
+    elif shape == "sine":
+        vibrato = 0.05 * np.sin(phase * 6)
+        waveform = np.sin(phase + vibrato)
+    else:
+        waveform = np.sin(phase)
 
-        elif i == 1:
-            # **Frame 2: Stronger FM synthesis for sustain**
-            mod_freq: float = FM_MOD_FREQ_BASE + (FM_MOD_FREQ_RANGE * velocity)
-            fm_mod = np.sin(phase * mod_freq) * FM_MOD_INDEX
-            max_harm: int = int(DEFAULT_MAX_HARMONICS * harmonic_boost)
-            max_harm = max(DEFAULT_MIN_HARMONICS, max_harm)
-
-            harmonics = np.sum([(1.0 / h) * np.sin(h * phase + fm_mod) for h in range(1, max_harm)], axis=0)
-            waveform = harmonics * velocity
-
-        else:
-            # **Frame 3: Saw-triangle blend with phase distortion for release**
-            triangle_wave = np.abs(np.mod(phase / np.pi, 2) - 1) * 2 - 1
-            saw_wave = np.sign(np.sin(phase * (pitch / 64.0))) * velocity
-            phase_distortion = np.sin(phase * DEFAULT_PHASE_DISTORTION) * DEFAULT_PHASE_DISTORTION_AMOUNT
-            waveform = (triangle_wave * TRIANGLE_BLEND_RATIO + saw_wave * SAW_BLEND_RATIO) + phase_distortion
-
-        # Normalize waveform
-        max_val: float = np.max(np.abs(waveform)) or 1.0
-        waveform /= max_val
-
-        # Encode to base64
-        raw_bytes = waveform.astype(np.float32).tobytes()
-        encoded = base64.b64encode(raw_bytes).decode("utf-8")
-        frames.append(encoded)
-
-    return frames
+    waveform *= velocity
+    waveform /= (np.max(np.abs(waveform)) or 1.0)
+    return base64.b64encode(waveform.astype(np.float32).tobytes()).decode("utf-8")
 
 
 def replace_three_wavetables(json_data: str, frame_data_list: List[str]) -> str:
     """
-    Finds the first 3 "wave_data" fields in the JSON, replaces them with the
-    provided base64-encoded frames, and returns the modified JSON string.
+    Replaces the first 3 "wave_data" entries in a Vital preset JSON with provided base64-encoded wavetable frames.
     
     Args:
-        json_data (str): The JSON string containing the preset data.
-        frame_data_list (List[str]): A list of 3 base64-encoded wavetable frames.
-        
+        json_data (str): The raw JSON string from the .vital preset.
+        frame_data_list (List[str]): List of 3 base64-encoded wavetable frames.
+
     Returns:
-        str: The modified JSON string with the replaced "wave_data" entries.
+        str: Updated JSON string with modified wave_data fields.
     """
+    import re
+
     pattern = r'"wave_data"\s*:\s*"[^"]*"'
     matches = list(re.finditer(pattern, json_data))
 
     if len(matches) < 3:
-        print(f"⚠️ Warning: Only {len(matches)} 'wave_data' entries found. Need 3+.")
-        replace_count = min(len(matches), 3)
+        print(f"⚠️ Warning: Only {len(matches)} 'wave_data' entries found. Need at least 3.")
+        replace_count = len(matches)
     else:
         replace_count = 3
 
@@ -998,7 +1024,7 @@ def replace_three_wavetables(json_data: str, frame_data_list: List[str]) -> str:
         start, end = matches[i].span()
         replacement = f'"wave_data": "{frame_data_list[i]}"'
         result = result[:start] + replacement + result[end:]
-    
+
     print(f"✅ Replaced wave_data in {replace_count} place(s).")
     return result
 
@@ -1374,8 +1400,16 @@ def modify_vital_preset(vital_preset: Dict[str, Any],
     # 7) Oscillators
     apply_full_oscillator_params_to_preset(modified, midi_data)
 
-    # 8) Wavetable generation
-    frame_data: List[str] = generate_three_frame_wavetables(midi_data, num_frames=3, frame_size=2048)
+    # 8) Wavetables: Generate dynamic shapes per oscillator based on MIDI stats
+    shape1 = get_shape_for_osc1(stats)
+    shape2 = get_shape_for_osc2(stats)
+    shape3 = get_shape_for_osc3(stats)
+
+    frames_osc1 = generate_osc1_frame(midi_data, frame_size=DEFAULT_FRAME_SIZE, shape=shape1)
+    frames_osc2 = generate_osc2_frame(midi_data, frame_size=DEFAULT_FRAME_SIZE, shape=shape2)
+    frames_osc3 = generate_osc3_frame(midi_data, frame_size=DEFAULT_FRAME_SIZE, shape=shape3)
+    frame_data = [frames_osc1, frames_osc2, frames_osc3]
+
 
     # 9) Enable oscillators
     num_notes: int = len(notes)

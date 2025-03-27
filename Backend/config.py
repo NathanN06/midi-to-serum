@@ -241,7 +241,7 @@ DEFAULT_FRAME_COUNT = 3   # Default to 3 frames if no notes exist
 FRAME_SCALING_FACTOR = 10  # Scaling factor for estimating frame count
 
 # Default frame size for wavetables
-DEFAULT_FRAME_SIZE = 2048
+DEFAULT_FRAME_SIZE = 8192
 
 # Default Sample Settings
 DEFAULT_SAMPLE_RATE = 44100
@@ -419,3 +419,9 @@ FILTER_2_CC_NUMBERS = FILTER_2_CUTOFF_CC | FILTER_2_RESONANCE_CC | FILTER_2_DRIV
 DEFAULT_FILTER_DRIVE = 0.5
 DEFAULT_FILTER_KEYTRACK = 0.5
 DEFAULT_FILTER_MIX = 1.0
+
+OSC_SHAPE_POOLS = {
+    1: ["sine", "triangle", "folded", "saw"],
+    2: ["harmonic_buzz", "chaotic", "square", "saw"],
+    3: ["sine", "triangle", "folded"]
+}
