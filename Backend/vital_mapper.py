@@ -828,51 +828,74 @@ def update_settings(modified_preset: Dict[str, Any], notes: List[Dict[str, Any]]
 
 def get_shape_for_osc1(stats):
     """
-    OSC1 → Attack Phase: sharper = more aggression
+    OSC1 → Attack Phase: Sharper = more aggression, smoother = more mellow.
     """
+    avg_velocity = stats.get("avg_velocity", 80)
     velocity_range = stats.get("velocity_range", 0)
     velocity_std = stats.get("velocity_std", 0)
-    avg_velocity = stats.get("avg_velocity", 80)
     avg_pitch = stats.get("avg_pitch", 60)
     note_density = stats.get("note_density", 0.02)
 
-    if avg_velocity > 110 and note_density > 0.035:
+    # High aggression
+    if avg_velocity > 90 and velocity_range > 60:
         return "folded"
-    elif note_density > 0.05 and velocity_range > 80:
+
+    # Fast-moving passages
+    if note_density > 0.07:
         return "saw"
-    elif velocity_std > 25 and avg_pitch < 55:
+
+    # Dynamic expressiveness
+    if velocity_std > 25:
         return "triangle"
-    elif note_density < 0.015:
+
+    # Sparse or mellow
+    if note_density < 0.015:
         return "sine"
+
+    # Fallback based on pitch
+    if avg_pitch > 75:
+        return "saw"
+    elif avg_pitch < 50:
+        return "triangle"
     else:
-        return random.choice(["folded", "saw", "sine"])
+        return "folded"
 
 
 def get_shape_for_osc2(stats):
     """
-    OSC2 → Harmonic Blend: richer or fuzzier based on pitch spread
+    OSC2 → Harmonic Blend: richer or fuzzier based on pitch and note complexity.
     """
     pitch_range = stats.get("pitch_range", 12)
     note_density = stats.get("note_density", 0.02)
-    velocity_range = stats.get("velocity_range", 0)
     avg_pitch = stats.get("avg_pitch", 60)
-    velocity_std = stats.get("velocity_std", 0)
 
-    if pitch_range > 60 and note_density > 0.03:
+    # Wild pitch motion = chaotic
+    if pitch_range > 65:
         return "chaotic"
-    elif note_density > 0.04 and velocity_range > 50:
+
+    # Busy textures = rich buzz
+    if note_density > 0.05:
         return "harmonic_buzz"
-    elif avg_pitch > 72 and velocity_std < 20:
+
+    # Melodic and clear
+    if avg_pitch > 68:
         return "triangle"
-    elif pitch_range < 10:
+
+    # Simple, minimal range
+    if pitch_range < 15:
         return "sine"
+
+    # Mid-complexity fallback
+    if pitch_range > 40:
+        return "saw"
     else:
-        return random.choice(["chaotic", "harmonic_buzz", "triangle", "saw"])
+        return "triangle"
 
 
 def get_shape_for_osc3(stats):
     """
-    OSC3 → Final Release: smoother or noisier based on decay needs
+    OSC3 → Final Release: smoother or noisier based on decay needs.
+    No randomness — purely MIDI-driven.
     """
     avg_velocity = stats.get("avg_velocity", 80)
     velocity_std = stats.get("velocity_std", 0)
@@ -880,16 +903,35 @@ def get_shape_for_osc3(stats):
     note_density = stats.get("note_density", 0.02)
     velocity_range = stats.get("velocity_range", 0)
 
-    if avg_velocity < 35 or velocity_std > 35:
+    # Highly expressive: big swings in dynamics or sparse notes
+    if velocity_std > 30 or (velocity_std > 25 and note_density < 0.02):
         return "triangle"
-    elif pitch_range < 10 and note_density < 0.02:
-        return "sine"
-    elif note_density > 0.045 and velocity_range > 40:
+
+    # Rich, bright release needed for dense, varied pitch movement
+    if note_density > 0.065 and pitch_range > 25:
         return "folded"
-    elif velocity_range == 0:
-        return "sine"
+
+    # Low energy, soft touch
+    if avg_velocity < 35 or velocity_range < 10:
+        return "sine" if pitch_range < 50 else "triangle"
+
+    # No dynamics at all, use shape based on pitch context
+    if velocity_range == 0:
+        if pitch_range > 60:
+            return "folded"
+        elif pitch_range < 10:
+            return "triangle"
+        else:
+            return "saw"
+
+    # Default deterministic fallback — based on pitch shape only
+    if pitch_range > 40:
+        return "folded"
+    elif pitch_range > 20:
+        return "triangle"
     else:
-        return random.choice(["triangle", "folded", "sine"])
+        return "sine"
+
 
 
 def generate_osc1_frame(midi_data: Dict[str, Any], frame_size: int = DEFAULT_FRAME_SIZE, shape: str = "sine") -> str:
