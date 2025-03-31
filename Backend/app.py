@@ -9,7 +9,7 @@ from werkzeug.utils import secure_filename
 
 from config import DEFAULT_VITAL_PRESET_FILENAME, PRESETS_DIR
 from midi_parser import parse_midi
-from vital_mapper import load_default_vital_preset, modify_vital_preset, save_vital_preset
+from vital_mapper.core import modify_vital_preset, save_vital_preset, load_default_vital_preset
 
 # Set up Flask and folders
 template_dir = Path(__file__).resolve().parents[1] / "Frontend" / "templates"

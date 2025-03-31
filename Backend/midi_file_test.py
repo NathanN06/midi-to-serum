@@ -167,7 +167,6 @@ def get_shape_for_osc3(stats):
         return "triangle"
     else:
         return "sine"
-# === MAIN ANALYSIS FUNCTION ===
 
 def analyze_midi_folder(midi_dir, output_path="midi_shape_analysis.json"):
     results = []
