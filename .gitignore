@@ -5,3 +5,5 @@ Presets/
 output/
 midi_files/
 midifiles_p/
+Temp_sysex_holders/
+venv/
