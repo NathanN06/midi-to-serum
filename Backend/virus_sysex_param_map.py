@@ -152,30 +152,30 @@ virus_sysex_param_map = {
     150: "undefined_150",
     151: "undefined_151",
     152: "undefined_152",
-    153: "undefined_153",
-    154: "undefined_154",
-    155: "undefined_155",
-    156: "undefined_156",
-    157: "undefined_157",
-    158: "undefined_158",
-    159: "undefined_159",
-    160: "Control_Smooth_Mode",
-    161: "Bender_Range_Up",
-    162: "Bender_Range_Down",
-    163: "Bender_Scale",
-    164: "undefined_164",
-    165: "undefined_165",
-    166: "Filter1_Env_Polarity",
-    167: "Filter2_Env_Polarity",
-    168: "Filter2_Cutoff_Link",
-    169: "Filter_Keytrack_Base",
-    170: "Osc_Init_Phase",
-    171: "Punch_Intensity",
+    153: "Control_Smooth_Mode",     # B 25
+    154: "Bender_Range_Up",         # B 26
+    155: "Bender_Range_Down",       # B 27
+    156: "Bender_Scale",            # B 28
+    157: "undefined_157",           # (B 29 not documented)
+    158: "Filter1_Env_Polarity",    # B 30
+    159: "Filter2_Env_Polarity",    # B 31
+    160: "Filter2_Cutoff_Link",     # B 32
+    161: "Filter_Keytrack_Base",    # B 33
+    162: "undefined_162",           # (B 34 not documented)
+    163: "Osc_Init_Phase",          # B 35
+    164: "Punch_Intensity",         # B 36
+    165: "undefined_165",           # (B 37)
+    166: "undefined_166",           # (B 38)
+    167: "Vocoder_Mode",            # B 39
+    168: "undefined_168",
+    169: "undefined_169",
+    170: "undefined_170",
+    171: "undefined_171",
     172: "undefined_172",
     173: "undefined_173",
     174: "undefined_174",
     175: "undefined_175",
-    176: "Vocoder_Mode",
+    176: "undefined_176",
     177: "undefined_177",
     178: "undefined_178",
     179: "undefined_179",
@@ -256,4 +256,3 @@ virus_sysex_param_map = {
     254: "undefined_254",
     255: "undefined_255"
 }
-

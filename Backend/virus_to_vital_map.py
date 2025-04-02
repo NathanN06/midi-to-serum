@@ -1,115 +1,145 @@
 virus_to_vital_map = {
     "Bank_Select": None,
     "Modulation_Wheel": {
-        "vital_target": "macro_1",
-        "scale": lambda x: x / 127
+    "vital_target": "macro_control_1",
+    "scale": lambda x: x / 127  
     },
     "Breath_Controller": None,
     "Contr_3": None,
     "Foot_Controller": None,
     "Portamento_Time": {
-        "vital_target": "portamento",
-        "scale": lambda x: x / 127
+    "vital_target": "portamento_time",
+    "scale": lambda x: (x / 127) * 20 - 10  # Vital's range is approximately -10 to +10
     },
     "Data_Slider": None,
-    "Channel_Volume": {
-        "vital_target": "amp_level",
-        "scale": lambda x: x / 127
-    },
+    "Channel_Volume": None,  # No direct amp/output volume parameter in Vital; consider macro or leave unmapped
     "Balance": {
-        "vital_target": "osc_mix",
-        "scale": lambda x: (x - 64) / 64  # -1 to +1
+    "vital_target": ["osc_1_level", "osc_2_level"],
+    "scale": lambda x: {
+        "osc_1_level": 1 - (x / 127),
+        "osc_2_level": x / 127
+    }   
     },
     "Contr_9": None,
-    "Panorama": {
-        "vital_target": "pan",
-        "scale": lambda x: (x - 64) / 64  # -1 to +1
+    # Panorama likely controls overall stereo position — apply equally to all oscillator pans
+    "Panorama": [
+    {
+        "vital_target": "osc_1_pan",
+        "scale": lambda x: (x - 64) / 64
     },
+    {
+        "vital_target": "osc_2_pan",
+        "scale": lambda x: (x - 64) / 64
+    },
+    {
+        "vital_target": "osc_3_pan",
+        "scale": lambda x: (x - 64) / 64
+    }
+    ],
     "Expression": {
-        "vital_target": "macro_2",
-        "scale": lambda x: x / 127
+    "vital_target": "macro_control_2",
+    "scale": lambda x: x / 127
     },
     "Contr_12": None,
     "Contr_13": None,
     "Contr_14": None,
     "Contr_15": None,
     "Contr_16": None,
+    
     "Osc1_Shape": {
-        "vital_target": "osc_1_wave_frame",
-        "scale": lambda x: x / 127  # Shape morph position
+    "handler": "inject_osc1_waveform_from_shape"
     },
+
     "Osc1_Pulsewidth": {
-        "vital_target": "osc_1_pulse_width",
+        # Not in actual list => None
+        "vital_target": None,
         "scale": lambda x: x / 127
     },
     "Osc1_Wave_Select": {
+        # In actual list => keep
         "vital_target": "osc_1_wave_frame",
-        "scale": lambda x: x / 64  # Wave selection normalized
+        "scale": lambda x: x / 64
     },
     "Osc1_Semitone": {
+        # In actual list => keep
         "vital_target": "osc_1_transpose",
-        "scale": lambda x: x - 64  # Semitone transpose
+        "scale": lambda x: x - 64
     },
     "Osc1_Keyfollow": {
-        "vital_target": "osc_1_pitch_tracking",
-        "scale": lambda x: x / 127  # Key tracking from 0% to 100%
+        # Not in actual list => None
+        "vital_target": None,
+        "scale": lambda x: x / 127
     },
     "Osc2_Shape": {
+        # In actual list => keep
         "vital_target": "osc_2_wave_frame",
-        "scale": lambda x: x / 127  # Shape morph position
+        "scale": lambda x: x / 127
     },
     "Osc2_Pulsewidth": {
-        "vital_target": "osc_2_pulse_width",
+        # Not in actual list => None
+        "vital_target": None,
         "scale": lambda x: x / 127
     },
     "Osc2_Wave_Select": {
+        # In actual list => keep
         "vital_target": "osc_2_wave_frame",
-        "scale": lambda x: x / 64  # Wave selection normalized
+        "scale": lambda x: x / 64
     },
     "Osc2_Semitone": {
+        # In actual list => keep
         "vital_target": "osc_2_transpose",
-        "scale": lambda x: x - 64  # Semitone transpose
+        "scale": lambda x: x - 64
     },
     "Osc2_Detune": {
-        "vital_target": "osc_2_detune",
-        "scale": lambda x: (x - 64) / 64  # Detune from -1 to +1
+        # You requested mapping this to osc_2_tune specifically
+        "vital_target": "osc_2_tune",
+        "scale": lambda x: (x - 64) / 64
     },
     "Osc2_FM_Amount": {
-        "vital_target": "osc_2_fm_amount",
+        # Not in actual list => None
+        "vital_target": None,
         "scale": lambda x: x / 127
     },
     "Osc2_Sync": {
-        "vital_target": "osc_2_sync",
+        # Not in actual list => None
+        "vital_target": None,
         "scale": lambda x: 1 if x > 0 else 0
     },
     "Osc2_Filt_Env_Amt": {
-        "vital_target": "filter_1_env_amount",
-        "scale": lambda x: (x - 64) / 64  # -1 to +1 envelope modulation
+        # Not in actual list => None
+        "vital_target": None,
+        "scale": lambda x: (x - 64) / 64
     },
     "FM_Filt_Env_Amt": {
-        "vital_target": "filter_1_fm_env_amount",
-        "scale": lambda x: (x - 64) / 64  # -1 to +1 modulation
+        # Not in actual list => None
+        "vital_target": None,
+        "scale": lambda x: (x - 64) / 64
     },
     "Osc2_Keyfollow": {
-        "vital_target": "osc_2_pitch_tracking",
-        "scale": lambda x: x / 127  # 0% to 100% tracking
+        # Not in actual list => None
+        "vital_target": None,
+        "scale": lambda x: x / 127
     },
-    "Bank_Select_Alt": None,
+    "Bank_Select_Alt": None,  # No parameters or scale
     "Osc_Balance": {
-        "vital_target": "osc_mix",
-        "scale": lambda x: (x - 64) / 64  # -1 (Osc1) to +1 (Osc2)
+        # Not in actual list => None
+        "vital_target": None,
+        "scale": lambda x: (x - 64) / 64
     },
     "Suboscillator_Volume": {
+        # In actual list => keep
         "vital_target": "osc_3_level",
-        "scale": lambda x: x / 127  # 0 (off) to 1 (max volume)
+        "scale": lambda x: x / 127
     },
     "Suboscillator_Shape": {
+        # In actual list => keep
         "vital_target": "osc_3_wave_frame",
-        "scale": lambda x: 0 if x == 0 else 1  # 0: square, 1: triangle
+        "scale": lambda x: 0 if x == 0 else 1
     },
     "Osc_Mainvolume": {
-        "vital_target": "osc_global_volume",
-        "scale": lambda x: x / 127  # 0 to 1
+        # Not in actual list => None
+        "vital_target": None,
+        "scale": lambda x: x / 127
     },
     "Noise_Volume": {
         "vital_target": "noise_level",
@@ -472,54 +502,61 @@ virus_to_vital_map = {
         "vital_target": "lfo_3_tempo_sync",
         "scale": lambda x: min(x, 19)  # Map tempo divisions
     },
+    # virus_to_vital_map "Page B" block from indices #150–255, corrected:
     "undefined_150": None,
     "undefined_151": None,
     "undefined_152": None,
-    "undefined_153": None,
-    "undefined_154": None,
-    "undefined_155": None,
-    "undefined_156": None,
-    "undefined_157": None,
-    "undefined_158": None,
-    "undefined_159": None,
-    "Control_Smooth_Mode": None,  # No direct Vital equivalent
+
+    "Control_Smooth_Mode": None,  # B 25 => #153
     "Bender_Range_Up": {
         "vital_target": "pitch_wheel_range_up",
-        "scale": lambda x: x - 64  # Range -64 to +63 semitones
+        "scale": lambda x: x - 64  # Range -64..+63 semitones
     },
     "Bender_Range_Down": {
         "vital_target": "pitch_wheel_range_down",
-        "scale": lambda x: x - 64  # Range -64 to +63 semitones
+        "scale": lambda x: x - 64  # Range -64..+63 semitones
     },
-    "Bender_Scale": None,  # No direct equivalent in Vital
-    "undefined_164": None,
-    "undefined_165": None,
-    "Filter1_Env_Polarity": {
+    "Bender_Scale": None,  # B 28 => #156
+
+    "undefined_157": None,  # B 29 (undocumented)
+
+    "Filter1_Env_Polarity": {      # B 30 => #158
         "vital_target": "filter_1_env_polarity",
-        "scale": lambda x: 1 if x > 0 else -1  # Positive or negative envelope modulation
+        "scale": lambda x: 1 if x > 0 else -1
     },
-    "Filter2_Env_Polarity": {
+    "Filter2_Env_Polarity": {      # B 31 => #159
         "vital_target": "filter_2_env_polarity",
         "scale": lambda x: 1 if x > 0 else -1
     },
-    "Filter2_Cutoff_Link": None,  # Vital doesn't link filter cutoffs directly
-    "Filter_Keytrack_Base": {
+    "Filter2_Cutoff_Link": None,   # B 32 => #160
+    "Filter_Keytrack_Base": {      # B 33 => #161
         "vital_target": "filter_keytrack_base",
-        "scale": lambda x: (x / 127) * 120 - 60  # Assuming mapping to -60 to +60 MIDI notes
+        "scale": lambda x: (x / 127) * 120 - 60  # e.g. -60..+60 keytrack range
     },
-    "Osc_Init_Phase": {
+    "undefined_162": None,         # B 34 (undocumented)
+
+    "Osc_Init_Phase": {            # B 35 => #163
         "vital_target": "osc_phase",
-        "scale": lambda x: x / 127  # Normalized phase 0–1
+        "scale": lambda x: x / 127  # 0..1
     },
-    "Punch_Intensity": {
+    "Punch_Intensity": {           # B 36 => #164
         "vital_target": "env_1_attack_power",
-        "scale": lambda x: x / 127  # Map punch intensity to envelope punchiness
+        "scale": lambda x: x / 127
     },
+    "undefined_165": None,         # B 37
+    "undefined_166": None,         # B 38
+
+    "Vocoder_Mode": None,          # B 39 => #167 (No Vital equivalent)
+
+    "undefined_168": None,
+    "undefined_169": None,
+    "undefined_170": None,
+    "undefined_171": None,
     "undefined_172": None,
     "undefined_173": None,
     "undefined_174": None,
     "undefined_175": None,
-    "Vocoder_Mode": None,  # Vital has no direct vocoder equivalent
+    "undefined_176": None,
     "undefined_177": None,
     "undefined_178": None,
     "undefined_179": None,
@@ -535,9 +572,10 @@ virus_to_vital_map = {
     "undefined_189": None,
     "undefined_190": None,
     "undefined_191": None,
+
     "Osc1_Shape_Velocity": {
         "vital_target": "osc_1_warp_velocity",
-        "scale": lambda x: (x - 64) / 64  # Velocity modulation from -1 to +1
+        "scale": lambda x: (x - 64) / 64
     },
     "Osc2_Shape_Velocity": {
         "vital_target": "osc_2_warp_velocity",
@@ -553,11 +591,13 @@ virus_to_vital_map = {
     },
     "undefined_196": None,
     "undefined_197": None,
+
     "Filter1_EnvAmt_Velocity": {
         "vital_target": "filter_1_env_velocity",
         "scale": lambda x: (x - 64) / 64
     },
-    "Filter1_EnvAmt_Velocity_dup": None,  # Duplicate or undefined parameter
+    "Filter1_EnvAmt_Velocity_dup": None,  # Possibly a duplicate param
+
     "Resonance1_Velocity": {
         "vital_target": "filter_1_resonance_velocity",
         "scale": lambda x: (x - 64) / 64
@@ -568,6 +608,7 @@ virus_to_vital_map = {
     },
     "undefined_202": None,
     "undefined_203": None,
+
     "Amp_Velocity": {
         "vital_target": "amp_level_velocity",
         "scale": lambda x: (x - 64) / 64
@@ -578,41 +619,44 @@ virus_to_vital_map = {
     },
     "undefined_206": None,
     "undefined_207": None,
-    "Definable1_Single": None,  # Flexible modulation source, define later
-    "Definable2_Single": None,  # Flexible modulation source, define later
-    "Assign1_Source": None,  # Flexible modulation source (assign manually)
-    "Assign1_Destination": None,  # Flexible modulation destination (assign manually)
+
+    "Definable1_Single": None,
+    "Definable2_Single": None,
+
+    "Assign1_Source": None,
+    "Assign1_Destination": None,
     "Assign1_Amount": {
         "vital_target": "mod_matrix_1_amount",
         "scale": lambda x: (x - 64) / 64
     },
-    "Assign2_Source": None,  # Flexible modulation source (assign manually)
-    "Assign2_Destination1": None,  # Flexible modulation destination (assign manually)
+    "Assign2_Source": None,
+    "Assign2_Destination1": None,
     "Assign2_Amount1": {
         "vital_target": "mod_matrix_2_amount",
         "scale": lambda x: (x - 64) / 64
     },
-    "Assign2_Destination2": None,  # Second destination, manually assigned
+    "Assign2_Destination2": None,
     "Assign2_Amount2": {
         "vital_target": "mod_matrix_3_amount",
         "scale": lambda x: (x - 64) / 64
     },
-    "Assign3_Source": None,  # Flexible modulation source (assign manually)
-    "Assign3_Destination1": None,  # Destination 1, manually assigned
+    "Assign3_Source": None,
+    "Assign3_Destination1": None,
     "Assign3_Amount1": {
         "vital_target": "mod_matrix_4_amount",
         "scale": lambda x: (x - 64) / 64
     },
-    "Assign3_Destination2": None,  # Destination 2, manually assigned
+    "Assign3_Destination2": None,
     "Assign3_Amount2": {
         "vital_target": "mod_matrix_5_amount",
         "scale": lambda x: (x - 64) / 64
     },
-    "Assign3_Destination3": None,  # Destination 3, manually assigned
+    "Assign3_Destination3": None,
     "Assign3_Amount3": {
         "vital_target": "mod_matrix_6_amount",
         "scale": lambda x: (x - 64) / 64
     },
+
     "undefined_225": None,
     "undefined_226": None,
     "undefined_227": None,
@@ -628,7 +672,8 @@ virus_to_vital_map = {
     "undefined_237": None,
     "undefined_238": None,
     "undefined_239": None,
-    "Single_Name_Char1": None,  # Preset name character; not relevant for Vital parameters
+
+    "Single_Name_Char1": None,   # Characters for naming a single
     "Single_Name_Char2": None,
     "Single_Name_Char3": None,
     "Single_Name_Char4": None,
@@ -638,13 +683,14 @@ virus_to_vital_map = {
     "Single_Name_Char8": None,
     "Single_Name_Char9": None,
     "Single_Name_Char10": None,
-    "Filter_Select": {
-        "vital_target": "filter_routing", 
-        "scale": lambda x: x / 127  # Assuming continuous filter selection
+
+    "Filter_Select": {           # B122 => #250 (still on page B)
+        "vital_target": "filter_routing",
+        "scale": lambda x: x / 127
     },
     "undefined_251": None,
     "undefined_252": None,
     "undefined_253": None,
     "undefined_254": None,
-    "undefined_255": None,
+    "undefined_255": None
 }

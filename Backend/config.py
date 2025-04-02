@@ -8,3 +8,6 @@ TEMP_SYSEX_FOLDER = "/Users/nathannguyen/Documents/Midi_To_serum/Temp_sysex_hold
 
 # Folder to store the final converted .vital patches
 OUTPUT_PATCH_FOLDER = "/Users/nathannguyen/Documents/Midi_To_serum/Backend/output"
+
+
+DEFAULT_FRAME_SIZE = 8192
