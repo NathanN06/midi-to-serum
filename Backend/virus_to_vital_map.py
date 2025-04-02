@@ -50,32 +50,22 @@ virus_to_vital_map = {
     "handler": "inject_osc1_waveform_from_shape"
     },
 
-    "Osc1_Pulsewidth": {
-        # Not in actual list => None
-        "vital_target": None,
-        "scale": lambda x: x / 127
-    },
-    "Osc1_Wave_Select": {
-        # In actual list => keep
-        "vital_target": "osc_1_wave_frame",
-        "scale": lambda x: x / 64
-    },
+    "Osc1_Pulsewidth": None,  # No direct mapping unless square waveform is explicitly selected
+    "Osc1_Wave_Select": None,  # Shape is handled via injected wavetable; no direct float index in Vital
     "Osc1_Semitone": {
         # In actual list => keep
         "vital_target": "osc_1_transpose",
         "scale": lambda x: x - 64
     },
     "Osc1_Keyfollow": {
-        # Not in actual list => None
-        "vital_target": None,
-        "scale": lambda x: x / 127
+    # ❌ Not mappable: Vital does not support per-oscillator keytracking control
+    "vital_target": None,
+    "scale": lambda x: x / 127
     },
     "Osc2_Shape": {
-        # In actual list => keep
-        "vital_target": "osc_2_wave_frame",
-        "scale": lambda x: x / 127
+    "handler": "inject_osc2_waveform_from_shape"
     },
-    "Osc2_Pulsewidth": {
+     "Osc2_Pulsewidth": {
         # Not in actual list => None
         "vital_target": None,
         "scale": lambda x: x / 127
