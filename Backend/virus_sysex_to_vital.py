@@ -3,6 +3,7 @@
 from typing import Dict, Any
 from virus_sysex_param_map import virus_sysex_param_map
 from virus_to_vital_map import virus_to_vital_map
+from custom_handlers import __dict__ as handler_funcs
 
 def apply_virus_sysex_params_to_vital_preset(param_block: list[int], vital_preset: Dict[str, Any]) -> None:
     """
@@ -28,7 +29,15 @@ def apply_virus_sysex_params_to_vital_preset(param_block: list[int], vital_prese
         if not mapping:
             continue  # No mapping defined
 
-        # 3) Check if it's a direct dictionary-based mapping
+        # 3) Handler-based override
+        if isinstance(mapping, dict) and "handler" in mapping:
+            handler_name = mapping["handler"]
+            handler_func = handler_funcs.get(handler_name)
+            if handler_func:
+                handler_func(virus_value, vital_preset)
+            continue  # Skip default mapping logic
+
+        # 4) Check if it's a direct dictionary-based mapping
         if isinstance(mapping, dict):
             vital_target = mapping.get("vital_target")
             scale_fn = mapping.get("scale", lambda x: x)
@@ -37,12 +46,11 @@ def apply_virus_sysex_params_to_vital_preset(param_block: list[int], vital_prese
             if isinstance(vital_target, list):
                 # Special case: multiple targets from one Virus parameter
                 for target_key in vital_target:
-                    # Assume scale_fn returns a dictionary of target -> value
                     vital_preset["settings"][target_key] = scaled_value[target_key]
             else:
                 vital_preset["settings"][vital_target] = scaled_value
 
-        # 4) Check if it's a list of mappings (multi-target entries like Panorama)
+        # 5) If it's a list of mappings (multi-target entries like Panorama)
         elif isinstance(mapping, list):
             for item in mapping:
                 vital_target = item.get("vital_target")
@@ -50,6 +58,6 @@ def apply_virus_sysex_params_to_vital_preset(param_block: list[int], vital_prese
                 scaled_value = scale_fn(virus_value)
                 vital_preset["settings"][vital_target] = scaled_value
 
-        # 5) If mapping is None or invalid, skip
+        # 6) If mapping is None or invalid, skip
         else:
             continue

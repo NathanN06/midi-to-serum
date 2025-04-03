@@ -165,21 +165,22 @@ def replace_three_wavetables(json_data: str, frame_data_list: List[str], virus_p
     import re
     import json
 
+    # Load the preset into a dict
     preset = json.loads(json_data)
 
     if "settings" in preset:
+        # Always enable OSC2
         preset["settings"]["osc_2_on"] = 1.0
 
-        # Only turn on OSC3 if shape or volume is not default
+        # Conditionally enable OSC3 if it has meaningful shape or volume
         sub_shape = virus_params.get("Suboscillator_Shape", 0)
         sub_volume = virus_params.get("Suboscillator_Volume", 0)
-        if sub_shape != 0 or sub_volume > 0:
-            preset["settings"]["osc_3_on"] = 1.0
-        else:
-            preset["settings"]["osc_3_on"] = 0.0
+        preset["settings"]["osc_3_on"] = 1.0 if sub_shape != 0 or sub_volume > 0 else 0.0
 
+    # Convert back to JSON string before regex replacement
     updated_json = json.dumps(preset)
 
+    # Find and replace wave_data blocks
     pattern = r'"wave_data"\s*:\s*"[^"]*"'
     matches = list(re.finditer(pattern, updated_json))
 

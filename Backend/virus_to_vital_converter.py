@@ -80,7 +80,7 @@ def load_sysex_txt_files(folder_path: str, default_vital_patch: str) -> List[Tup
         osc3_frame = generate_osc3_frame_from_sysex(virus_params)
 
         modified_json = json.dumps(base_dict)
-        modified_json = replace_three_wavetables(modified_json, [osc1_frame, osc2_frame, osc3_frame])
+        modified_json = replace_three_wavetables(modified_json, [osc1_frame, osc2_frame, osc3_frame], virus_params)
 
         patch_filename = f"patch_{i:03}.vital"
         patches.append((modified_json, patch_filename))

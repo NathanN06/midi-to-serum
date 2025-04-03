@@ -139,17 +139,19 @@ virus_to_vital_map = {
     },
 
     "Osc_Mainvolume": {
-        # Not in actual list => None
-        "vital_target": None,
-        "scale": lambda x: x / 127
+    # 🛈 No direct amp/output volume parameter in Vital — potentially use macro later?
+    "vital_target": None,
+    "scale": lambda x: x / 127
     },
     "Noise_Volume": {
-        "vital_target": "noise_level",
-        "scale": lambda x: x / 127
+    # No direct noise_level parameter in Vital; possibly use sample osc later
+    "vital_target": None,
+    "scale": lambda x: x / 127
     },
     "Ringmodulator_Volume": {
-        "vital_target": "ring_mod_level",
-        "scale": lambda x: x / 127
+    # ❓ No native ring modulation in Vital — tag for supervisor review
+    "vital_target": None,
+    "scale": lambda x: x / 127
     },
     "Reserved_Unknown": None,
     "Cutoff": {
@@ -168,14 +170,20 @@ virus_to_vital_map = {
         "vital_target": "filter_2_resonance",
         "scale": lambda x: x / 127
     },
+    
     "Filter1_Env_Amt": {
-        "vital_target": "filter_1_env_amount",
-        "scale": lambda x: (x - 64) / 64  # Envelope modulation -1 to +1
+    # 🔁 Modulation Only: Use this value to create a modulation route from Env1 → Filter1 Cutoff
+    "modulation_target": "filter_1_cutoff",
+    "modulation_source": "env_1",
+    "scale": lambda x: (x - 64) / 64
     },
     "Filter2_Env_Amt": {
-        "vital_target": "filter_2_env_amount",
-        "scale": lambda x: (x - 64) / 64
+    # 🔁 Modulation Only: Use this value to create a modulation route from Env1 → Filter2 Cutoff
+    "modulation_target": "filter_2_cutoff",
+    "modulation_source": "env_1",
+    "scale": lambda x: (x - 64) / 64
     },
+
     "Filter1_Keyfollow": {
         "vital_target": "filter_1_keytrack",
         "scale": lambda x: (x - 64) / 64  # -1 to +1 (negative to positive tracking)
@@ -185,8 +193,7 @@ virus_to_vital_map = {
         "scale": lambda x: (x - 64) / 64
     },
     "Filter_Balance": {
-        "vital_target": "filter_mix",
-        "scale": lambda x: (x - 64) / 64  # -1 (Filter1) to +1 (Filter2)
+    "handler": "set_filter_balance_mix" 
     },
     "Saturation_Curve": {
         "vital_target": "distortion_type",
