@@ -196,17 +196,20 @@ virus_to_vital_map = {
     "handler": "set_filter_balance_mix" 
     },
     "Saturation_Curve": {
-        "vital_target": "distortion_type",
-        "scale": lambda x: min(x, 6)  # 0-6 maps to Vital distortion types
+    "vital_target": "distortion_type",
+    "scale": lambda x: min(x, 6),
+    "extra": lambda x, settings: settings.update({"distortion_on": 1.0}) if x > 0 else None
     },
+
     "Filter1_Mode": {
-        "vital_target": "filter_1_type",
-        "scale": lambda x: min(x, 3)  # 0:LP, 1:HP, 2:BP, 3:Notch
+    "vital_target": "filter_1_model",  # this exists
+    "scale": lambda x: min(x, 3)       # 0: LP, 1: HP, 2: BP, 3: Notch (or closest match)
     },
-    "Filter2_Mode": {
-        "vital_target": "filter_2_type",
-        "scale": lambda x: min(x, 3)
+     "Filter2_Mode": {
+    "vital_target": "filter_2_model",  # This exists in the JSON
+    "scale": lambda x: min(x, 3)       # Clamp to range 0–3 to stay safe
     },
+
     "Filter_Routing": {
         "vital_target": "filter_routing",
         "scale": lambda x: min(x, 3)  # 0: Serial 4-pole, 1: Serial 6-pole, 2: Parallel, 3: Split
@@ -253,18 +256,22 @@ virus_to_vital_map = {
     },
     "Hold_Pedal": None,  # Typically MIDI performance-related, not directly mapped
     "Portamento_Pedal": {
-        "vital_target": "portamento",
-        "scale": lambda x: 1 if x > 0 else 0  # Pedal on/off
+    "vital_target": "portamento_time",
+    "scale": lambda x: 0.2 if x > 0 else -10.0  # 0.2 enables glide, -10 disables it
     },
-    "Sostenuto_Pedal": None,  # Not directly supported in Vital
+    "Sostenuto_Pedal": {
+    "vital_target": None,
+    "scale": lambda x: x / 127,
+    "note": "Performance controller, no Vital equivalent"
+    },
     "Lfo1_Rate": {
         "vital_target": "lfo_1_frequency",
         "scale": lambda x: x / 127
     },
     "Lfo1_Shape": {
-        "vital_target": "lfo_1_waveform",
-        "scale": lambda x: min(x, 5)  # Map Virus shapes to Vital waveforms (0-5)
+    "handler": "inject_lfo1_shape_from_sysex"
     },
+
     "Lfo1_Env_Mode": {
         "vital_target": "lfo_1_env_mode",
         "scale": lambda x: 1 if x > 0 else 0  # Off/On (Envelope mode)

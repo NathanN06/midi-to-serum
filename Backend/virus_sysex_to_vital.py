@@ -50,6 +50,12 @@ def apply_virus_sysex_params_to_vital_preset(param_block: list[int], vital_prese
             else:
                 vital_preset["settings"][vital_target] = scaled_value
 
+            # 🆕 Optional side effects — e.g. turning on FX modules
+            extra_fn = mapping.get("extra")
+            if callable(extra_fn):
+                extra_fn(virus_value, vital_preset["settings"])
+
+
         # 5) If it's a list of mappings (multi-target entries like Panorama)
         elif isinstance(mapping, list):
             for item in mapping:

@@ -11,3 +11,4 @@ OUTPUT_PATCH_FOLDER = "/Users/nathannguyen/Documents/Midi_To_serum/Backend/outpu
 
 
 DEFAULT_FRAME_SIZE = 8192
+DEFAULT_LFO_FRAME_SIZE = 64  

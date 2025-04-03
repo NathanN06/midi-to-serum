@@ -9,16 +9,11 @@ from vital_wavetable_generator import (
     generate_osc3_frame_from_sysex,
     replace_three_wavetables
 )
+from virus_lfo_generator import inject_lfo1_shape_from_sysex  # 👈 Only inject LFO1
 
 def load_vital_file_as_dict(vital_file_path: str) -> Dict[str, Any]:
     """
     Loads a .vital file from disk and parses it as a JSON dictionary.
-
-    Args:
-        vital_file_path (str): Path to the .vital file.
-
-    Returns:
-        dict: Parsed Vital patch dictionary.
     """
     with open(vital_file_path, "r", encoding="utf-8") as f:
         return json.load(f)
@@ -34,15 +29,9 @@ def load_sysex_txt_files(folder_path: str, default_vital_patch: str) -> List[Tup
       - Loads a base .vital preset.
       - Applies Virus parameters using your mapping logic.
       - Generates custom oscillator waveforms for OSC1, OSC2, and OSC3.
-      - Injects those wavetables directly into the JSON.
+      - Injects those waveforms directly into the JSON.
+      - Injects LFO1 shape based on Virus Lfo1_Shape value.
       - Returns a tuple of (updated JSON string, filename).
-
-    Args:
-        folder_path (str): Path to the folder with .txt SysEx files.
-        default_vital_patch (str): Path to the base Vital preset to use.
-
-    Returns:
-        list[tuple]: A list of (updated_json_string, patch_filename) tuples.
     """
     with open(default_vital_patch, "r", encoding="utf-8") as f:
         base_vital_json = f.read()
@@ -73,8 +62,14 @@ def load_sysex_txt_files(folder_path: str, default_vital_patch: str) -> List[Tup
 
         base_dict = json.loads(base_vital_json)
 
+        # Step 1: Apply Virus parameters to Vital settings
         apply_virus_sysex_params_to_vital_preset(param_block, base_dict)
 
+        # Step 2: Inject LFO1 shape from Virus Lfo1_Shape
+        lfo1_value = virus_params.get("Lfo1_Shape", 0)
+        inject_lfo1_shape_from_sysex(lfo1_value, base_dict)
+
+        # Step 3: Inject custom oscillator waveforms
         osc1_frame = generate_osc1_frame_from_sysex(virus_params)
         osc2_frame = generate_osc2_frame_from_sysex(virus_params)
         osc3_frame = generate_osc3_frame_from_sysex(virus_params)
@@ -94,10 +89,6 @@ def save_vital_patches(
 ) -> None:
     """
     Saves each JSON string as a .vital file in the specified output folder.
-
-    Args:
-        patches (list): List of (json_str, filename) tuples.
-        output_folder (str): Destination folder path.
     """
     os.makedirs(output_folder, exist_ok=True)
 
