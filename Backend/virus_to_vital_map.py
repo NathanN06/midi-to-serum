@@ -281,11 +281,16 @@ virus_to_vital_map = {
     "scale": lambda x: 1 if x > 0 else 0,  # 0: Poly, 1: Mono
     "note": "No equivalent parameter in Vital — skipping"
     },
-    "Lfo1_Symmetry": {
-    "vital_target": "lfo_1_smooth_time",
-    "scale": lambda x: ((x / 127) * 15.0) - 7.5  # Normalize to Vital's -7.5 to +7.5 range
+    "Lfo1_Symmetry": [
+    {
+        "vital_target": "lfo_1_smooth_mode",
+        "scale": lambda x: 1 if x > 64 else 0
     },
-
+    {
+        "vital_target": "lfo_1_smooth_time",
+        "scale": lambda x: ((x / 127) * 15.0) - 7.5
+    }
+    ],
     "Lfo1_Keyfollow": [
     {
         "vital_target": "lfo_1_keytrack_transpose",
@@ -335,131 +340,174 @@ virus_to_vital_map = {
     "Lfo2_Shape": {
     "handler": "inject_lfo2_shape_from_sysex"
     },
+   "Lfo2_Env_Mode": {
+    # No matching Vital parameter found — tagging as unsupported
+    "vital_target": None,
+    "scale": lambda x: 1 if x > 0 else 0
+    },
 
-    "Lfo2_Env_Mode": {
-        "vital_target": "lfo_2_env_mode",
-        "scale": lambda x: 1 if x > 0 else 0
-    },
     "Lfo2_Mode": {
-        "vital_target": "lfo_2_mode",
-        "scale": lambda x: 1 if x > 0 else 0  # Poly (0) / Mono (1)
-    },
-    "Lfo2_Symmetry": {
-        "vital_target": "lfo_2_smooth",
-        "scale": lambda x: (x - 64) / 64
-    },
-    "Lfo2_Keyfollow": {
-        "vital_target": "lfo_2_keytrack",
-        "scale": lambda x: x / 127
-    },
-    "Lfo2_Keytrigger": {
-        "vital_target": "lfo_2_key_trigger",
+        # No matching Vital parameter found — tagging as unsupported
+        "vital_target": None,
         "scale": lambda x: 1 if x > 0 else 0
     },
+    "Lfo2_Symmetry": [
+    {
+        "vital_target": "lfo_2_smooth_mode",
+        "scale": lambda x: 1 if x > 64 else 0  # enable smoothing if above center
+    },
+    {
+        "vital_target": "lfo_2_smooth_time",
+        "scale": lambda x: ((x / 127) * 15.0) - 7.5  # Normalize 0–127 to -7.5 to +7.5
+    }
+    ],
+    "Lfo2_Keyfollow": [
+    {
+        "vital_target": "lfo_2_keytrack_transpose",
+        "scale": lambda x: (x / 127) * 24 - 12  # -12 to +12 semitones
+    },
+    {
+        "vital_target": "lfo_2_keytrack_tune",
+        "scale": lambda x: (x / 127) * 1.0  # 0.0 to 1.0 fine tune
+    }
+    ],
+
+    "Lfo2_Keytrigger": {
+    "vital_target": None,  # Not available in current Vital format
+    "scale": lambda x: 1 if x > 0 else 0  # Still valid logic if added later
+    },
+   # 🧠 Modulation mappings — no known Vital targets yet, keep for later
+
     "OscShape_Lfo2_Amount": {
-        "vital_target": "osc_wave_frame_lfo_2_mod",
+        "vital_target": None,  # Modulation: LFO2 → Oscillator Shape
         "scale": lambda x: (x - 64) / 64
     },
+
     "FmAmount_Lfo2_Amount": {
-        "vital_target": "osc_fm_lfo_2_mod",
+        "vital_target": None,  # Modulation: LFO2 → FM Amount
         "scale": lambda x: (x - 64) / 64
     },
+
     "Cutoff1_Lfo2_Amount": {
-        "vital_target": "filter_1_cutoff_lfo_2_mod",
+        "vital_target": None,  # Modulation: LFO2 → Filter 1 Cutoff
         "scale": lambda x: (x - 64) / 64
     },
+
     "Cutoff2_Lfo2_Amount": {
-        "vital_target": "filter_2_cutoff_lfo_2_mod",
+        "vital_target": None,  # Modulation: LFO2 → Filter 2 Cutoff
         "scale": lambda x: (x - 64) / 64
     },
+
     "Panorama_Lfo2_Amount": {
-        "vital_target": "pan_lfo_2_mod",
-        "scale": lambda x: (x - 64) / 64  # -1 (left) to +1 (right)
+        "vital_target": None,  # Modulation: LFO2 → Panning
+        "scale": lambda x: (x - 64) / 64
     },
     "Patch_Volume": {
-        "vital_target": "master_volume",
-        "scale": lambda x: x / 127
+    "vital_target": None,  # ⚠️ No direct Vital equivalent for global volume (possibly handled via macros or output gain)
+    "scale": lambda x: x / 127
     },
     "undefined_92": None,
     "Transpose": {
-        "vital_target": "global_transpose",
-        "scale": lambda x: x - 64  # -64 to +63 semitones
+    "vital_target": None,  # ⚠️ No global transpose param in Vital (consider applying to osc_X_transpose individually)
+    "scale": lambda x: x - 64
     },
     "Key_Mode": {
-        "vital_target": "voice_mode",
-        "scale": lambda x: min(x, 4)  # 0: Poly, 1–4: Mono modes (limit to available modes)
+    "vital_target": None,  # ⚠️ No direct 'voice_mode' param in Vital (mono/poly might be handled differently)
+    "scale": lambda x: min(x, 4)  # Poly/Mono mode – revisit later if needed
     },
     "undefined_95": None,
     "undefined_96": None,
     "Unison_Mode": {
-        "vital_target": "unison_voices",
-        "scale": lambda x: 2 if x > 0 else 1  # 1 voice (off) or 2 voices (on)
+    "vital_target": [
+        "osc_1_unison_voices",
+        "osc_2_unison_voices",
+        "osc_3_unison_voices"
+    ],
+    "scale": lambda x: {
+        "osc_1_unison_voices": 2 if x > 0 else 1,
+        "osc_2_unison_voices": 2 if x > 0 else 1,
+        "osc_3_unison_voices": 2 if x > 0 else 1,
+    }
     },
     "Unison_Detune": {
-        "vital_target": "unison_detune",
-        "scale": lambda x: x / 127  # 0 to 1 amount of detune
+    "vital_target": ["osc_1_unison_detune", "osc_2_unison_detune", "osc_3_unison_detune"],
+    "scale": lambda x: {
+        "osc_1_unison_detune": x / 127,
+        "osc_2_unison_detune": x / 127,
+        "osc_3_unison_detune": x / 127,
+    }
     },
     "Unison_Panorama_Spread": {
-        "vital_target": "unison_spread",
-        "scale": lambda x: x / 127  # stereo width 0 to 1
+    "vital_target": None,
+    "scale": lambda x: x / 127,  # stereo width 0 to 1
+    "tag": "modulation"
     },
     "Unison_Lfo_Phase": {
-        "vital_target": "unison_phase",
-        "scale": lambda x: (x - 64) / 64  # phase spread from -1 to +1
+    "vital_target": None,
+    "scale": lambda x: (x - 64) / 64,  # phase spread from -1 to +1
+    "tag": "modulation"
     },
     "Input_Mode": None,  # Not applicable, Virus audio input routing
     "Input_Select": None,  # Not applicable in Vital
     "undefined_103": None,
     "undefined_104": None,
     "Chorus_Mix": {
-        "vital_target": "chorus_mix",
-        "scale": lambda x: x / 127
+    "vital_target": "chorus_dry_wet",  # Assuming this is the correct parameter name for dry/wet mix in Vital
+    "scale": lambda x: x / 127  # Maps 0 to 127 to 0 to 1 (dry to wet mix)
     },
     "Chorus_Rate": {
         "vital_target": "chorus_frequency",
         "scale": lambda x: x / 127
     },
     "Chorus_Depth": {
-        "vital_target": "chorus_depth",
+        "vital_target": "chorus_mod_depth",
         "scale": lambda x: x / 127
     },
     "Chorus_Delay": {
-        "vital_target": "chorus_delay_1",
-        "scale": lambda x: x / 127
+    "vital_target": "chorus_delay_1",
+    "scale": lambda x: x / 127
     },
+
     "Chorus_Feedback": {
         "vital_target": "chorus_feedback",
         "scale": lambda x: (x - 64) / 64  # -1 to +1
     },
     "Chorus_Lfo_Shape": {
-        "vital_target": "chorus_lfo_type",
-        "scale": lambda x: min(x, 5)  # Limit to valid Vital shapes (0-5)
+    "vital_target": None,
+    "scale": lambda x: min(x, 5),  # Limit to valid Vital shapes (0-5)
+    "note": "To be revisited - no direct mapping in Vital, needs custom solution."
     },
     "undefined_111": None,
     "undefined_112": None,
     "Effect_Send": {
-        "vital_target": "delay_mix",
-        "scale": lambda x: x / 127
+    "vital_target": "delay_dry_wet",
+    "scale": lambda x: x / 127  # Dry/Wet mix
     },
+
     "Delay_Time": {
-        "vital_target": "delay_time",
-        "scale": lambda x: x / 127
+        "vital_target": "delay_tempo",  # Vital uses delay tempo
+        "scale": lambda x: x / 127  # Mapping the delay time to tempo
     },
+
     "Delay_Feedback": {
         "vital_target": "delay_feedback",
-        "scale": lambda x: x / 127
+        "scale": lambda x: x / 127  # Feedback amount
     },
+
     "Delay_Rate": {
         "vital_target": "delay_frequency",
-        "scale": lambda x: x / 127
+        "scale": lambda x: x / 127  # Delay rate or frequency
     },
+
     "Delay_Depth": {
-        "vital_target": "delay_stereo_offset",
-        "scale": lambda x: x / 127
+        "vital_target": "delay_filter_cutoff",  # Vital doesn't have depth for delay, using filter cutoff as placeholder
+        "scale": lambda x: x / 127  # Depth mapped to filter cutoff
     },
+
     "Delay_Lfo_Shape": {
-        "vital_target": "delay_lfo_type",
-        "scale": lambda x: min(x, 5)  # Limit to Vital waveform shapes
+    "vital_target": None,  # No equivalent in Vital at the moment
+    "scale": None,  # No scaling since it's not implemented yet
+    "note": "This parameter may need to be revisited in the future for LFO-related effects."
     },
     "undefined_119": None,
     "undefined_120": None,
@@ -472,17 +520,20 @@ virus_to_vital_map = {
     "undefined_127": None,
     "undefined_128": None,
     "Arp_Mode": {
-        "vital_target": "arpeggiator_mode",
-        "scale": lambda x: min(x, 6)  # 0:Off, 1:Up, 2:Down, etc.
+    "vital_target": None,  # No equivalent in Vital at the moment
+    "scale": None,  # No scaling available
+    "note": "This parameter may need to be revisited in the future for arpeggiator-related effects."
     },
     "undefined_130": None,
     "Arp_Octave_Range": {
-        "vital_target": "arpeggiator_octaves",
-        "scale": lambda x: min(x, 3)  # 0–3 octaves
+    "vital_target": None,  # No equivalent in Vital for arpeggiator octave range
+    "scale": None,  # No scaling available
+    "note": "This parameter may need to be revisited in the future for arpeggiator-related effects."
     },
     "Arp_Hold_Enable": {
-        "vital_target": "arpeggiator_hold",
-        "scale": lambda x: 1 if x > 0 else 0
+    "vital_target": None,  # No equivalent in Vital for arpeggiator hold
+    "scale": None,  # No scaling available
+    "note": "This parameter may need to be revisited in the future for arpeggiator hold functionality."
     },
     "undefined_133": None,
     "undefined_134": None,
@@ -491,8 +542,7 @@ virus_to_vital_map = {
         "scale": lambda x: x / 127
     },
     "Lfo3_Shape": {
-        "vital_target": "lfo_3_waveform",
-        "scale": lambda x: min(x, 5)  # Virus waveforms: 0–5, Vital matches similarly
+    "handler": "inject_lfo3_shape_from_sysex"
     },
     "Lfo3_Mode": {
         "vital_target": "lfo_3_mode",

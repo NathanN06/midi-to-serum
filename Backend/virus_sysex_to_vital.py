@@ -1,5 +1,3 @@
-# virus_sysex_to_vital.py
-
 from typing import Dict, Any
 from virus_sysex_param_map import virus_sysex_param_map
 from virus_to_vital_map import virus_to_vital_map
@@ -40,14 +38,16 @@ def apply_virus_sysex_params_to_vital_preset(param_block: list[int], vital_prese
         # 4) Check if it's a direct dictionary-based mapping
         if isinstance(mapping, dict):
             vital_target = mapping.get("vital_target")
-            scale_fn = mapping.get("scale", lambda x: x)
+            scale_fn = mapping.get("scale")
+            if not callable(scale_fn):
+                scale_fn = lambda x: x  # Fallback if None
             scaled_value = scale_fn(virus_value)
 
             if isinstance(vital_target, list):
                 # Special case: multiple targets from one Virus parameter
                 for target_key in vital_target:
                     vital_preset["settings"][target_key] = scaled_value[target_key]
-            else:
+            elif vital_target:
                 vital_preset["settings"][vital_target] = scaled_value
 
             # 🆕 Optional side effects — e.g. turning on FX modules
@@ -55,14 +55,16 @@ def apply_virus_sysex_params_to_vital_preset(param_block: list[int], vital_prese
             if callable(extra_fn):
                 extra_fn(virus_value, vital_preset["settings"])
 
-
         # 5) If it's a list of mappings (multi-target entries like Panorama)
         elif isinstance(mapping, list):
             for item in mapping:
                 vital_target = item.get("vital_target")
-                scale_fn = item.get("scale", lambda x: x)
+                scale_fn = item.get("scale")
+                if not callable(scale_fn):
+                    scale_fn = lambda x: x
                 scaled_value = scale_fn(virus_value)
-                vital_preset["settings"][vital_target] = scaled_value
+                if vital_target:
+                    vital_preset["settings"][vital_target] = scaled_value
 
         # 6) If mapping is None or invalid, skip
         else:
