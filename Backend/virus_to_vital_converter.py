@@ -9,7 +9,7 @@ from vital_wavetable_generator import (
     generate_osc3_frame_from_sysex,
     replace_three_wavetables
 )
-from virus_lfo_generator import inject_lfo1_shape_from_sysex  # 👈 Only inject LFO1
+from virus_lfo_generator import inject_lfo1_shape_from_sysex, inject_lfo2_shape_from_sysex
 
 def load_vital_file_as_dict(vital_file_path: str) -> Dict[str, Any]:
     """
@@ -30,7 +30,7 @@ def load_sysex_txt_files(folder_path: str, default_vital_patch: str) -> List[Tup
       - Applies Virus parameters using your mapping logic.
       - Generates custom oscillator waveforms for OSC1, OSC2, and OSC3.
       - Injects those waveforms directly into the JSON.
-      - Injects LFO1 shape based on Virus Lfo1_Shape value.
+      - Injects LFO1 and LFO2 shapes based on Virus LfoX_Shape values.
       - Returns a tuple of (updated JSON string, filename).
     """
     with open(default_vital_patch, "r", encoding="utf-8") as f:
@@ -65,11 +65,11 @@ def load_sysex_txt_files(folder_path: str, default_vital_patch: str) -> List[Tup
         # Step 1: Apply Virus parameters to Vital settings
         apply_virus_sysex_params_to_vital_preset(param_block, base_dict)
 
-        # Step 2: Inject LFO1 shape from Virus Lfo1_Shape
-        lfo1_value = virus_params.get("Lfo1_Shape", 0)
-        inject_lfo1_shape_from_sysex(lfo1_value, base_dict)
+        # Step 2: Inject LFO shapes
+        inject_lfo1_shape_from_sysex(virus_params.get("Lfo1_Shape", 0), base_dict)
+        inject_lfo2_shape_from_sysex(virus_params.get("Lfo2_Shape", 0), base_dict)
 
-        # Step 3: Inject custom oscillator waveforms
+        # Step 3: Generate and inject custom oscillator frames
         osc1_frame = generate_osc1_frame_from_sysex(virus_params)
         osc2_frame = generate_osc2_frame_from_sysex(virus_params)
         osc3_frame = generate_osc3_frame_from_sysex(virus_params)

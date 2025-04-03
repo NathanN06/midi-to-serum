@@ -80,3 +80,21 @@ def inject_lfo1_shape_from_sysex(virus_value: int, preset: Dict[str, Any]) -> No
 
     preset["settings"]["lfos"][0] = shape_dict
     print(f"🎛️ Injected LFO1 shape → {shape_dict['name']}")
+
+
+def inject_lfo2_shape_from_sysex(virus_value: int, preset: Dict[str, Any]) -> None:
+    """
+    Handler to inject LFO2 shape based on Lfo2_Shape virus parameter.
+    """
+    virus_params = {"Lfo2_Shape": virus_value}
+    shape_dict = generate_lfo_shape_from_sysex(virus_params, lfo_number=2)
+
+    preset.setdefault("settings", {})
+    preset["settings"].setdefault("lfos", [])
+
+    # Ensure lfos[1] (second slot) exists
+    while len(preset["settings"]["lfos"]) < 2:
+        preset["settings"]["lfos"].append({})
+
+    preset["settings"]["lfos"][1] = shape_dict
+    print(f"🎛️ Injected LFO2 shape → {shape_dict['name']}")

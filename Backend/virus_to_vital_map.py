@@ -277,49 +277,65 @@ virus_to_vital_map = {
         "scale": lambda x: 1 if x > 0 else 0  # Off/On (Envelope mode)
     },
     "Lfo1_Mode": {
-        "vital_target": "lfo_1_mode",
-        "scale": lambda x: 1 if x > 0 else 0  # 0: Poly, 1: Mono
+    "vital_target": None,
+    "scale": lambda x: 1 if x > 0 else 0,  # 0: Poly, 1: Mono
+    "note": "No equivalent parameter in Vital — skipping"
     },
     "Lfo1_Symmetry": {
-        "vital_target": "lfo_1_smooth",
-        "scale": lambda x: (x - 64) / 64  # -1 to +1 symmetry/smoothing
+    "vital_target": "lfo_1_smooth_time",
+    "scale": lambda x: ((x / 127) * 15.0) - 7.5  # Normalize to Vital's -7.5 to +7.5 range
     },
-    "Lfo1_Keyfollow": {
-        "vital_target": "lfo_1_keytrack",
-        "scale": lambda x: x / 127  # 0 to 100%
+
+    "Lfo1_Keyfollow": [
+    {
+        "vital_target": "lfo_1_keytrack_transpose",
+        "scale": lambda x: (x / 127) * 24 - 12  # Maps 0–127 to -12 to +12 semitones
     },
+    {
+        "vital_target": "lfo_1_keytrack_tune",
+        "scale": lambda x: (x / 127) * 1.0  # Fine tune 0 to 1.0
+    }
+    ],
     "Lfo1_Keytrigger": {
-        "vital_target": "lfo_1_key_trigger",
-        "scale": lambda x: 1 if x > 0 else 0  # Off/On
+    "vital_target": None,  # Vital doesn't expose a direct key trigger switch
+    "scale": lambda x: 1 if x > 0 else 0,
+    "note": "No direct equivalent in Vital; key triggering is usually implicit via sync/phase."
     },
+
     "Osc1_Lfo1_Amount": {
-        "vital_target": "osc_1_pitch_lfo_1_mod",
-        "scale": lambda x: (x - 64) / 64  # Pitch mod amount
+    # Modulation → LFO1 to Osc1 Pitch (no direct Vital target yet)
+    "vital_target": None,
+    "scale": lambda x: (x - 64) / 64
     },
     "Osc2_Lfo1_Amount": {
-        "vital_target": "osc_2_pitch_lfo_1_mod",
-        "scale": lambda x: (x - 64) / 64
+    # Modulation → LFO1 to Osc2 Pitch (no direct Vital target yet)
+    "vital_target": None,
+    "scale": lambda x: (x - 64) / 64
     },
     "PW_Lfo1_Amount": {
-        "vital_target": "osc_pw_lfo_1_mod",
+        # ⚠️ Modulation: LFO1 → Pulse Width (target not yet mapped in Vital)
+        "vital_target": None,
         "scale": lambda x: (x - 64) / 64
     },
     "Reso_Lfo1_Amount": {
-        "vital_target": "filter_resonance_lfo_1_mod",
+        # ⚠️ Modulation: LFO1 → Filter Resonance (target not yet mapped in Vital)
+        "vital_target": None,
         "scale": lambda x: (x - 64) / 64
     },
     "FiltGain_Lfo1_Amount": {
-        "vital_target": "filter_drive_lfo_1_mod",
+        # ⚠️ Modulation: LFO1 → Filter Drive (target not yet mapped in Vital)
+        "vital_target": None,
         "scale": lambda x: (x - 64) / 64
     },
+
     "Lfo2_Rate": {
         "vital_target": "lfo_2_frequency",
         "scale": lambda x: x / 127
     },
     "Lfo2_Shape": {
-        "vital_target": "lfo_2_waveform",
-        "scale": lambda x: min(x, 5)  # Map to Vital shapes (0-5)
+    "handler": "inject_lfo2_shape_from_sysex"
     },
+
     "Lfo2_Env_Mode": {
         "vital_target": "lfo_2_env_mode",
         "scale": lambda x: 1 if x > 0 else 0
