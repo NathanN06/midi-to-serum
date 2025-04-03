@@ -71,9 +71,9 @@ virus_to_vital_map = {
         "scale": lambda x: x / 127
     },
     "Osc2_Wave_Select": {
-        # In actual list => keep
-        "vital_target": "osc_2_wave_frame",
-        "scale": lambda x: x / 64
+    # Redundant — waveform is determined by Osc2_Shape
+    "vital_target": None,
+    "scale": lambda x: x / 64   
     },
     "Osc2_Semitone": {
         # In actual list => keep
@@ -90,42 +90,54 @@ virus_to_vital_map = {
         "vital_target": None,
         "scale": lambda x: x / 127
     },
-    "Osc2_Sync": {
-        # Not in actual list => None
-        "vital_target": None,
-        "scale": lambda x: 1 if x > 0 else 0
+    "Osc2_FM_Amount": {
+    # Approximated using spectral morph amount (no true FM in Vital)
+    "vital_target": "osc_2_spectral_morph_amount",
+    "scale": lambda x: x / 127
     },
-    "Osc2_Filt_Env_Amt": {
-        # Not in actual list => None
-        "vital_target": None,
-        "scale": lambda x: (x - 64) / 64
+   "Osc2_Filt_Env_Amt": {
+    # Modulation: Filter envelope → Filter cutoff depth
+    # No direct parameter in Vital — needs custom modulation handler later
+    "vital_target": None,
+    "scale": lambda x: (x - 64) / 64
     },
+
     "FM_Filt_Env_Amt": {
-        # Not in actual list => None
-        "vital_target": None,
-        "scale": lambda x: (x - 64) / 64
+    # Modulation: Filter envelope → FM amount
+    # Needs modulation injection later
+    "vital_target": None,
+    "scale": lambda x: (x - 64) / 64,
+    "modulation_hint": {
+        "source": "env_1",
+        "target": "osc_2_phase_mod_amount"  # or whichever oscillator is FM'd
+    }
     },
     "Osc2_Keyfollow": {
-        # Not in actual list => None
-        "vital_target": None,
-        "scale": lambda x: x / 127
+    # Modulation: note pitch → oscillator 2 tune
+    "vital_target": None,
+    "scale": lambda x: x / 127,
+    "modulation_hint": {
+        "source": "note",
+        "target": "osc_2_tune"
+    }
     },
     "Bank_Select_Alt": None,  # No parameters or scale
+    
     "Osc_Balance": {
-        # Not in actual list => None
-        "vital_target": None,
-        "scale": lambda x: (x - 64) / 64
+    "vital_target": None,
+    "scale": lambda x: (x - 64) / 64,
+    "comment": "🟡 Maybe: could be mapped to osc_1_level and osc_2_level inversely"
     },
+
     "Suboscillator_Volume": {
         # In actual list => keep
         "vital_target": "osc_3_level",
         "scale": lambda x: x / 127
     },
     "Suboscillator_Shape": {
-        # In actual list => keep
-        "vital_target": "osc_3_wave_frame",
-        "scale": lambda x: 0 if x == 0 else 1
+    "handler": "inject_osc3_waveform_from_shape"    
     },
+
     "Osc_Mainvolume": {
         # Not in actual list => None
         "vital_target": None,
