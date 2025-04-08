@@ -168,9 +168,9 @@ virus_sysex_param_map = {
     166: "undefined_166",           # (B 38)
     167: "Vocoder_Mode",            # B 39
     168: "undefined_168",
-    169: "undefined_169",
+    169: "Osc3_Wave_Select",
     170: "undefined_170",
-    171: "undefined_171",
+    171: "Osc3_Semitone",
     172: "undefined_172",
     173: "undefined_173",
     174: "undefined_174",

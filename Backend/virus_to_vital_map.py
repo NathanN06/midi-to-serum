@@ -663,9 +663,17 @@ virus_to_vital_map = {
     "Vocoder_Mode": None,          # B 39 => #167 (No Vital equivalent)
 
     "undefined_168": None,
-    "undefined_169": None,
-    "undefined_170": None,
-    "undefined_171": None,
+    "Osc3_Wave_Select": {
+        "handler": "inject_osc3_waveform_from_shape"
+    },
+
+    "undefined_170": {
+    "vital_target": None,
+    },
+    "Osc3_Semitone": {
+    "vital_target": "osc_3_transpose",
+    "scale": lambda x: (x - 64)   # Virus 0–127 → Vital -64 to +63 semitones
+    },
     "undefined_172": None,
     "undefined_173": None,
     "undefined_174": None,

@@ -27,15 +27,22 @@ def virus_shape_number_to_name_osc2(value: int) -> str:
         return "custom_undefined"
 
 def virus_shape_number_to_name_osc3(value: int) -> str:
-    if value < 32:
+    if value == 0:
+        return "off"
+    elif value == 1:
+        return "slave"
+    elif value == 2:
+        return "saw"
+    elif value == 3:
+        return "pulse"
+    elif value == 4:
         return "sine"
-    elif value < 64:
+    elif value == 5:
         return "triangle"
-    elif value < 96:
-        return "folded"
+    elif 6 <= value <= 67:
+        return f"custom_{value - 5}"  # Wave 3 starts at index 6
     else:
-        return "dark_buzz"  # optional, or fallback to triangle
-
+        return "custom_undefined"
 
 def generate_osc1_frame_from_sysex(virus_params: Dict[str, Any], frame_size: int = DEFAULT_FRAME_SIZE) -> str:
     shape_value = virus_params.get("Osc1_Wave_Select", 0)
@@ -76,33 +83,28 @@ def generate_osc2_frame_from_sysex(virus_params: Dict[str, Any], frame_size: int
     return base64.b64encode(waveform.astype(np.float32).tobytes()).decode("utf-8")
 
 def generate_osc3_frame_from_sysex(virus_params: Dict[str, Any], frame_size: int = DEFAULT_FRAME_SIZE) -> str:
-    shape_value = virus_params.get("Suboscillator_Shape", 0)
+    shape_value = virus_params.get("Osc3_Wave_Select", 0)
     shape = virus_shape_number_to_name_osc3(shape_value)
 
-    velocity = 0.8  # Fixed gain multiplier
-    modwheel = virus_params.get("Modulation_Wheel", 64) / 127.0
+    # Treat 'off' and 'slave' as no waveform (OSC3 disabled or sync mode)
+    if shape in ("off", "slave"):
+        return ""
 
+    velocity = 0.8
     phase = np.linspace(0, 2 * np.pi, frame_size, endpoint=False)
 
     if shape == "sine":
-        vibrato = 0.05 * np.sin(phase * 6)
-        waveform = np.sin(phase + vibrato)
-    elif shape == "triangle":
-        base = 2 * np.abs(np.mod(phase / np.pi, 2) - 1) - 1
-        shimmer = 0.2 * np.sin(phase * 4)
-        waveform = base + shimmer
-    elif shape == "folded":
-        base = np.tanh(3.0 * np.sin(phase + np.sin(phase * 3)))
-        motion = 0.2 * np.sin(phase * 3 + modwheel * 2)
-        waveform = base + motion
-    elif shape == "dark_buzz":
-        waveform = np.sum([
-            np.sin(h * phase) * (1.0 / (h ** 1.2))
-            for h in range(1, 15)
-        ], axis=0)
-        waveform *= np.exp(-phase / (2 * np.pi))  # mellow decay feel
-    else:
         waveform = np.sin(phase)
+    elif shape == "triangle":
+        waveform = (2 / np.pi) * np.arcsin(np.sin(phase))  # Symmetrical triangle wave
+    elif shape == "saw":
+        waveform = 2 * (phase / (2 * np.pi)) - 1  # Linear ramp from -1 to 1
+    elif shape == "pulse":
+        waveform = np.where(np.sin(phase) >= 0, 1.0, -1.0)  # Hard pulse wave
+    elif shape.startswith("custom_"):
+        waveform = np.sin(phase) * np.cos(phase * 2)  # Placeholder for Virus wavetables
+    else:
+        waveform = np.sin(phase)  # Fallback to sine
 
     waveform *= velocity
     waveform /= (np.max(np.abs(waveform)) or 1.0)
@@ -131,10 +133,9 @@ def replace_three_wavetables(json_data: str, frame_data_list: List[str], virus_p
         # Always enable OSC2
         preset["settings"]["osc_2_on"] = 1.0
 
-        # Conditionally enable OSC3 if it has meaningful shape or volume
-        sub_shape = virus_params.get("Suboscillator_Shape", 0)
-        sub_volume = virus_params.get("Suboscillator_Volume", 0)
-        preset["settings"]["osc_3_on"] = 1.0 if sub_shape != 0 or sub_volume > 0 else 0.0
+        # OSC3 is OFF if Wave_Select is 0 ("Off") or 1 ("Slave")
+        osc3_wave_select = virus_params.get("Osc3_Wave_Select", 0)
+        preset["settings"]["osc_3_on"] = 0.0 if osc3_wave_select in (0, 1) else 1.0
 
     # Convert back to JSON string before regex replacement
     updated_json = json.dumps(preset)
@@ -147,10 +148,17 @@ def replace_three_wavetables(json_data: str, frame_data_list: List[str], virus_p
         print(f"⚠️ Only found {len(matches)} 'wave_data' entries — expected at least 3.")
         return updated_json
 
-    for i in reversed(range(3)):
+    # Replace OSC1 and OSC2 wave_data
+    for i in reversed(range(2)):
         start, end = matches[i].span()
         replacement = f'"wave_data": "{frame_data_list[i]}"'
         updated_json = updated_json[:start] + replacement + updated_json[end:]
 
-    print("✅ Replaced 3 wave_data entries. OSC2 is ON. OSC3 =", preset["settings"]["osc_3_on"])
+    # Only replace OSC3 wavetable if it's on
+    if preset["settings"]["osc_3_on"] == 1.0:
+        start, end = matches[2].span()
+        replacement = f'"wave_data": "{frame_data_list[2]}"'
+        updated_json = updated_json[:start] + replacement + updated_json[end:]
+
+    print("✅ Replaced wave_data. OSC2 = ON, OSC3 =", preset["settings"]["osc_3_on"])
     return updated_json
