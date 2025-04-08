@@ -47,8 +47,8 @@ def generate_osc1_frame_from_sysex(virus_params: Dict[str, Any], frame_size: int
     if shape == "sine":
         waveform = np.sin(phase)
     elif shape == "triangle":
-    # Use a symmetric triangle wave, alternating between 1 and -1.
-        waveform = 2 * np.abs(np.mod(phase / np.pi, 2) - 1) - 1
+    # Triangle wave derived from sine
+        waveform = (2/np.pi) * np.arcsin(np.sin(phase))
     else:
         waveform = np.sin(phase)  # fallback
 
@@ -66,8 +66,8 @@ def generate_osc2_frame_from_sysex(virus_params: Dict[str, Any], frame_size: int
     if shape == "sine":
         waveform = np.sin(phase)
     elif shape == "triangle":
-    # Use a symmetric triangle wave, alternating between 1 and -1.
-        waveform = 2 * np.abs(np.mod(phase / np.pi, 2) - 1) - 1
+    # Triangle wave derived from sine
+        waveform = (2/np.pi) * np.arcsin(np.sin(phase))
     else:
         waveform = np.sin(phase)  # fallback to sine
 

@@ -1,0 +1,11 @@
+# Ignore all .txt files inside the 'other' folder
+other/
+
+# Ignore the entire 'Presets' directory
+Presets/
+
+# Ignore the entire 'Tests' directory
+Tests/
+
+# Ignore the specific file '3.syx' in the root folder
+3.syx
