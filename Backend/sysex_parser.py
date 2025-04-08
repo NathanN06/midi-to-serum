@@ -7,7 +7,7 @@ def extract_sysex_from_midi(
     verbose: bool = True
 ) -> list[str]:
     """
-    Extracts Virus SysEx messages from a .mid file and saves each as a .txt file.
+    Extracts raw 256-byte Virus SysEx parameter blocks from a .mid file and saves each as a .txt file.
 
     Returns:
         List of full paths to saved SysEx .txt files.
@@ -18,30 +18,22 @@ def extract_sysex_from_midi(
     sysex_files = []
     sysex_count = 0
 
-    for i, track in enumerate(midi.tracks):
+    for track in midi.tracks:
         for msg in track:
-            if msg.type == 'sysex':
-                sysex_count += 1
-                hex_data = [f'{byte:02X}' for byte in msg.data]
+            if msg.type == 'sysex' and len(msg.data) >= 265:
+                data = list(msg.data)
 
-                # Try to extract only the 256-byte Single Dump data at the end
-                try:
-                    # Search for the 0x10 message type (Single Dump)
-                    if hex_data[5] == "10":
-                        param_data = hex_data[8:-1]  # slice to skip headers and trailing checksum
-                        if len(param_data) >= 256:
-                            param_data = param_data[:256]  # truncate to exact length
-                        else:
-                            continue  # skip invalid
-                    else:
-                        continue  # skip non-Single Dumps
-                except IndexError:
-                    continue
+                # Check for Virus Single Dump type (0x10 at index 5)
+                if data[5] == 0x10:
+                    param_block = data[8:8 + 256]
 
-                filename = os.path.join(output_dir, f"sysex_{sysex_count:03}.txt")
-                with open(filename, "w") as f:
-                    f.write(" ".join(param_data))
-                sysex_files.append(filename)
+                    # Sanity check
+                    if len(param_block) == 256:
+                        sysex_count += 1
+                        filename = os.path.join(output_dir, f"sysex_{sysex_count:03}.txt")
+                        with open(filename, "w") as f:
+                            f.write(" ".join(f"{b:02X}" for b in param_block))
+                        sysex_files.append(filename)
 
     if verbose:
         print(f"✅ Extracted {len(sysex_files)} valid Virus SysEx patches to '{output_dir}'")

@@ -16,11 +16,8 @@ virus_to_vital_map = {
     "Data_Slider": None,
     "Channel_Volume": None,  # No direct amp/output volume parameter in Vital; consider macro or leave unmapped
     "Balance": {
-    "vital_target": ["osc_1_level", "osc_2_level"],
-    "scale": lambda x: {
-        "osc_1_level": 1 - (x / 127),
-        "osc_2_level": x / 127
-    }   
+    "vital_target": None,
+    "scale": None
     },
     "Contr_9": None,
     # Panorama likely controls overall stereo position — apply equally to all oscillator pans
@@ -49,11 +46,13 @@ virus_to_vital_map = {
     "Contr_16": None,
     
     "Osc1_Shape": {
-    "handler": "inject_osc1_waveform_from_shape"
+    "vital_target": None
     },
 
     "Osc1_Pulsewidth": None,  # No direct mapping unless square waveform is explicitly selected
-    "Osc1_Wave_Select": None,  # Shape is handled via injected wavetable; no direct float index in Vital
+    "Osc1_Wave_Select": {
+    "handler": "inject_osc1_waveform_from_sysex"
+},  # Shape is handled via injected wavetable; no direct float index in Vital
     "Osc1_Semitone": {
         # In actual list => keep
         "vital_target": "osc_1_transpose",
@@ -64,18 +63,14 @@ virus_to_vital_map = {
     "vital_target": None,
     "scale": lambda x: x / 127
     },
-    "Osc2_Shape": {
-    "handler": "inject_osc2_waveform_from_shape"
-    },
+    "Osc2_Shape": None,
      "Osc2_Pulsewidth": {
         # Not in actual list => None
         "vital_target": None,
         "scale": lambda x: x / 127
     },
     "Osc2_Wave_Select": {
-    # Redundant — waveform is determined by Osc2_Shape
-    "vital_target": None,
-    "scale": lambda x: x / 64   
+    "handler": "inject_osc2_waveform_from_sysex"
     },
     "Osc2_Semitone": {
         # In actual list => keep
@@ -139,11 +134,12 @@ virus_to_vital_map = {
     "Suboscillator_Shape": {
     "handler": "inject_osc3_waveform_from_shape"    
     },
-
     "Osc_Mainvolume": {
-    # 🛈 No direct amp/output volume parameter in Vital — potentially use macro later?
-    "vital_target": None,
-    "scale": lambda x: x / 127
+    "vital_target": ["osc_1_level", "osc_2_level"],
+    "scale": lambda x: {
+        "osc_1_level": x / 127,
+        "osc_2_level": x / 127
+    }
     },
     "Noise_Volume": {
     # No direct noise_level parameter in Vital; possibly use sample osc later

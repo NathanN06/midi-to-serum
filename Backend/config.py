@@ -10,5 +10,5 @@ TEMP_SYSEX_FOLDER = "/Users/nathannguyen/Documents/Midi_To_serum/Temp_sysex_hold
 OUTPUT_PATCH_FOLDER = "/Users/nathannguyen/Documents/Midi_To_serum/Backend/output"
 
 
-DEFAULT_FRAME_SIZE = 8192
+DEFAULT_FRAME_SIZE = 2048
 DEFAULT_LFO_FRAME_SIZE = 64  
