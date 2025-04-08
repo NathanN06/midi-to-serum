@@ -49,19 +49,25 @@ virus_to_vital_map = {
     "vital_target": None
     },
 
-    "Osc1_Pulsewidth": None,  # No direct mapping unless square waveform is explicitly selected
+    "Osc1_Pulsewidth": {
+    "modulate_target": "osc_1_wave_frame",
+    "modulator": "lfo_1",
+    "amount_scale": lambda x: (x / 127.0) * 0.5,
+    "note": "Maps Virus pulse width to Vital wavetable position modulation"
+    },  # No direct mapping unless square waveform is explicitly selected
     "Osc1_Wave_Select": {
     "handler": "inject_osc1_waveform_from_sysex"
-},  # Shape is handled via injected wavetable; no direct float index in Vital
+    },  # Shape is handled via injected wavetable; no direct float index in Vital
     "Osc1_Semitone": {
         # In actual list => keep
         "vital_target": "osc_1_transpose",
         "scale": lambda x: x - 64
     },
     "Osc1_Keyfollow": {
-    # ❌ Not mappable: Vital does not support per-oscillator keytracking control
-    "vital_target": None,
-    "scale": lambda x: x / 127
+    "modulate_target": "osc_1_transpose",
+    "modulator": "note",
+    "amount_scale": lambda x: ((x - 64) / 63.0) * 0.25,
+    "note": "Controls pitch tracking depth from keyboard note to oscillator 1"
     },
     "Osc2_Shape": None,
      "Osc2_Pulsewidth": {
@@ -128,17 +134,18 @@ virus_to_vital_map = {
 
     "Suboscillator_Volume": {
         # In actual list => keep
-        "vital_target": "osc_3_level",
+        "vital_target": None,
         "scale": lambda x: x / 127
     },
     "Suboscillator_Shape": {
     "handler": "inject_osc3_waveform_from_shape"    
     },
     "Osc_Mainvolume": {
-    "vital_target": ["osc_1_level", "osc_2_level"],
+    "vital_target": ["osc_1_level", "osc_2_level", "osc_3_level"],
     "scale": lambda x: {
         "osc_1_level": x / 127,
-        "osc_2_level": x / 127
+        "osc_2_level": x / 127,
+        "osc_3_level": x / 127
     }
     },
     "Noise_Volume": {
@@ -674,7 +681,10 @@ virus_to_vital_map = {
     "vital_target": "osc_3_transpose",
     "scale": lambda x: (x - 64)   # Virus 0–127 → Vital -64 to +63 semitones
     },
-    "undefined_172": None,
+    "Osc3_Detune": {
+    "vital_target": "osc_3_unison_detune",
+    "scale": lambda x: (127 - x) / 15.875  # Virus 0–127 → Vital ~8.0–0.0 detune range
+    },
     "undefined_173": None,
     "undefined_174": None,
     "undefined_175": None,
