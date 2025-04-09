@@ -7,25 +7,27 @@ from config import DEFAULT_LFO_FRAME_SIZE
 
 
 def virus_lfo_shape_number_to_name(value: int) -> str:
-    if value < 16:
+    if value == 0:
         return "sine"
-    elif value < 32:
-        return "square"
-    elif value < 48:
-        return "saw"
-    elif value < 64:
+    elif value == 1:
         return "triangle"
-    elif value < 80:
-        return "ramp"
-    elif value < 96:
-        return "inv_ramp"
+    elif value == 2:
+        return "saw"
+    elif value == 3:
+        return "square"
+    elif value == 4:
+        return "sample_and_hold"
+    elif value == 5:
+        return "sample_and_glide"
+    elif 6 <= value <= 63:
+        return f"wave_{value}"  # because wave_3 starts at value=6
     else:
-        return "noise"
+        return "unknown"
 
 
 def generate_lfo_shape_from_sysex(virus_params: Dict[str, Any], lfo_number: int = 1, frame_size: int = DEFAULT_LFO_FRAME_SIZE) -> Dict[str, Any]:
     """
-    Generates a simple LFO shape for Vital based on Virus parameter value.
+    Generates an LFO shape for Vital from Virus LFO shape parameter, in Vital-compatible format.
     """
     param_key = f"Lfo{lfo_number}_Shape"
     shape_value = virus_params.get(param_key, 0)
@@ -35,24 +37,26 @@ def generate_lfo_shape_from_sysex(virus_params: Dict[str, Any], lfo_number: int 
 
     if shape_name == "sine":
         y = np.sin(2 * np.pi * x)
-    elif shape_name == "square":
-        y = np.sign(np.sin(2 * np.pi * x))
-    elif shape_name == "saw":
-        y = 2 * (x % 1) - 1
     elif shape_name == "triangle":
         y = 2 * np.abs(2 * (x % 1) - 1) - 1
-    elif shape_name == "ramp":
-        y = x ** 2
-    elif shape_name == "inv_ramp":
-        y = 1 - np.sqrt(x)
-    elif shape_name == "noise":
-        y = np.random.rand(frame_size) * 2 - 1
+    elif shape_name == "saw":
+        y = 2 * (x % 1) - 1
+    elif shape_name == "square":
+        y = np.sign(np.sin(2 * np.pi * x))
+    elif shape_name == "sample_and_hold":
+        block_size = frame_size // 8
+        y = np.repeat(np.random.uniform(-1, 1, 8), block_size)
+    elif shape_name == "sample_and_glide":
+        points = np.random.uniform(-1, 1, 8)
+        y = np.interp(x, np.linspace(0, 1, 8), points)
+    elif shape_name.startswith("wave_"):
+        y = 2 * np.abs(2 * (x % 1) - 1) - 1
     else:
         y = np.zeros(frame_size)
 
-    # Normalize to [0, 1] for Vital
+    # Normalize y to [0, 1] for Vital
     y = (y + 1) / 2
-    points = [val for pair in zip(x, y) for val in pair]
+    points = [val for pair in zip(x, y) for val in pair]  # [x0, y0, x1, y1, ...]
     powers = [0.0] * frame_size
 
     return {
@@ -64,17 +68,12 @@ def generate_lfo_shape_from_sysex(virus_params: Dict[str, Any], lfo_number: int 
     }
 
 
-def inject_lfo1_shape_from_sysex(virus_value: int, preset: Dict[str, Any]) -> None:
-    """
-    Handler to inject LFO1 shape based on Lfo1_Shape virus parameter.
-    """
-    virus_params = {"Lfo1_Shape": virus_value}
+def inject_lfo1_shape_from_sysex(virus_params: Dict[str, Any], preset: Dict[str, Any]) -> None:
     shape_dict = generate_lfo_shape_from_sysex(virus_params, lfo_number=1)
 
     preset.setdefault("settings", {})
     preset["settings"].setdefault("lfos", [])
 
-    # Ensure LFO1 slot exists
     while len(preset["settings"]["lfos"]) < 1:
         preset["settings"]["lfos"].append({})
 
@@ -82,34 +81,27 @@ def inject_lfo1_shape_from_sysex(virus_value: int, preset: Dict[str, Any]) -> No
     print(f"🎛️ Injected LFO1 shape → {shape_dict['name']}")
 
 
-def inject_lfo2_shape_from_sysex(virus_value: int, preset: Dict[str, Any]) -> None:
-    """
-    Handler to inject LFO2 shape based on Lfo2_Shape virus parameter.
-    """
-    virus_params = {"Lfo2_Shape": virus_value}
+
+def inject_lfo2_shape_from_sysex(virus_params: Dict[str, Any], preset: Dict[str, Any]) -> None:
     shape_dict = generate_lfo_shape_from_sysex(virus_params, lfo_number=2)
 
     preset.setdefault("settings", {})
     preset["settings"].setdefault("lfos", [])
 
-    # Ensure lfos[1] (second slot) exists
     while len(preset["settings"]["lfos"]) < 2:
         preset["settings"]["lfos"].append({})
 
     preset["settings"]["lfos"][1] = shape_dict
     print(f"🎛️ Injected LFO2 shape → {shape_dict['name']}")
 
-def inject_lfo3_shape_from_sysex(virus_value: int, preset: Dict[str, Any]) -> None:
-    """
-    Handler to inject LFO3 shape based on Lfo3_Shape virus parameter.
-    """
-    virus_params = {"Lfo3_Shape": virus_value}
+
+
+def inject_lfo3_shape_from_sysex(virus_params: Dict[str, Any], preset: Dict[str, Any]) -> None:
     shape_dict = generate_lfo_shape_from_sysex(virus_params, lfo_number=3)
 
     preset.setdefault("settings", {})
     preset["settings"].setdefault("lfos", [])
 
-    # Ensure LFO3 slot exists
     while len(preset["settings"]["lfos"]) < 3:
         preset["settings"]["lfos"].append({})
 

@@ -171,7 +171,7 @@ virus_sysex_param_map = {
     169: "Osc3_Wave_Select",
     170: "undefined_170",
     171: "Osc3_Semitone",
-    172: "Osc3_Detune",
+    172: "undefined_172",
     173: "undefined_173",
     174: "undefined_174",
     175: "undefined_175",
