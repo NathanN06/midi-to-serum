@@ -15,6 +15,7 @@ from virus_lfo_generator import (
     inject_lfo2_shape_from_sysex,
     inject_lfo3_shape_from_sysex,
 )
+from effects_mapper.master_fx import inject_all_effects  # 👈 NEW
 
 # -------------------------------------------------------------------
 # LOGGING CONFIGURATION
@@ -27,7 +28,7 @@ logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(message)s",
     handlers=[
         logging.FileHandler(LOG_FILE_PATH, mode="a", encoding="utf-8"),
-        logging.StreamHandler()  # optional: keep console output during testing
+        logging.StreamHandler()
     ]
 )
 
@@ -95,7 +96,10 @@ def load_sysex_txt_files(folder_path: str, default_vital_patch: str) -> List[Tup
         inject_lfo2_shape_from_sysex(virus_params, base_dict)
         inject_lfo3_shape_from_sysex(virus_params, base_dict)
 
-        # 3) Inject oscillator frames
+        # 3) Inject effects
+        inject_all_effects(virus_params, base_dict)
+
+        # 4) Inject oscillator frames
         osc1_frame = generate_osc1_frame_from_sysex(virus_params)
         osc2_frame = generate_osc2_frame_from_sysex(virus_params)
         osc3_frame = generate_osc3_frame_from_sysex(virus_params)

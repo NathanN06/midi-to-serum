@@ -19,4 +19,4 @@ def extract_virus_param_block(syx_path):
         return None
 
 # Example usage
-extract_virus_param_block("/Users/nathannguyen/Documents/Midi_To_serum/1.syx")
+extract_virus_param_block("/Users/nathannguyen/Documents/Midi_To_serum/3.syx")

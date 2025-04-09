@@ -103,7 +103,7 @@ virus_sysex_param_map = {
     101: "Input_Mode",
     102: "Input_Select",
     103: "undefined_103",
-    104: "undefined_104",
+    104: "Chorus_Mode",
     105: "Chorus_Mix",
     106: "Chorus_Rate",
     107: "Chorus_Depth",

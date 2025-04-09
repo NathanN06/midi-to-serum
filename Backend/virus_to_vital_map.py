@@ -205,10 +205,10 @@ virus_to_vital_map = {
     "handler": "set_filter_balance_mix" 
     },
     "Saturation_Curve": {
-    "vital_target": "distortion_type",
-    "scale": lambda x: min(x, 6),
-    "extra": lambda x, settings: settings.update({"distortion_on": 1.0}) if x > 0 else None
+    "vital_target": None,
+    "note": "Distortion temporarily disabled — handled later in effects_mapper"
     },
+
 
     "Filter1_Mode": {
     "vital_target": "filter_1_model",  # this exists
@@ -458,7 +458,10 @@ virus_to_vital_map = {
     },
     "Input_Mode": None,  # Not applicable, Virus audio input routing
     "Input_Select": None,  # Not applicable in Vital
-    "undefined_103": None,
+    "Chorus_Mode": {
+    "vital_target": None,
+    "note": "Chorus type (Classic/Vintage/etc.) – no direct Vital equivalent"
+    },
     "undefined_104": None,
     "Chorus_Mix": {
     "vital_target": "chorus_dry_wet",  # Assuming this is the correct parameter name for dry/wet mix in Vital
