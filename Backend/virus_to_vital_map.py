@@ -54,27 +54,32 @@ virus_to_vital_map = {
     "modulator": "lfo_1",
     "amount_scale": lambda x: (x / 127.0) * 0.5,
     "note": "Maps Virus pulse width to Vital wavetable position modulation"
-    },  # No direct mapping unless square waveform is explicitly selected
+    },  
+    
     "Osc1_Wave_Select": {
     "handler": "inject_osc1_waveform_from_sysex"
     },  # Shape is handled via injected wavetable; no direct float index in Vital
+    
     "Osc1_Semitone": {
         # In actual list => keep
         "vital_target": "osc_1_transpose",
         "scale": lambda x: x - 64
     },
+    
     "Osc1_Keyfollow": {
-    "modulate_target": "osc_1_transpose",
-    "modulator": "note",
-    "amount_scale": lambda x: ((x - 64) / 63.0) * 0.25,
-    "note": "Controls pitch tracking depth from keyboard note to oscillator 1"
+    "vital_target": None,
+    "note": "Vital has no keytracking for oscillator pitch — skipping."
     },
+
     "Osc2_Shape": None,
-     "Osc2_Pulsewidth": {
-        # Not in actual list => None
-        "vital_target": None,
-        "scale": lambda x: x / 127
+    
+    "Osc2_Pulsewidth": {
+    "modulate_target": "osc_2_wave_frame",
+    "modulator": "lfo_2",
+    "amount_scale": lambda x: (x / 127.0) * 0.5,
+    "note": "Maps Virus OSC2 pulse width to wavetable position modulation using LFO2"
     },
+
     "Osc2_Wave_Select": {
     "handler": "inject_osc2_waveform_from_sysex"
     },
@@ -88,33 +93,37 @@ virus_to_vital_map = {
         "vital_target": "osc_2_tune",
         "scale": lambda x: (x - 64) / 64
     },
-    "Osc2_FM_Amount": {
-        # Not in actual list => None
-        "vital_target": None,
-        "scale": lambda x: x / 127
+   "Osc2_FM_Amount": {
+    "modulate_target": "osc_2_spectral_morph_amount",
+    "modulator": "macro_control_2",
+    "amount_scale": lambda x: x / 127.0,
+    "note": "Approximates Virus FM via Vital spectral morph modulation"
     },
-    "Osc2_FM_Amount": {
-    # Approximated using spectral morph amount (no true FM in Vital)
-    "vital_target": "osc_2_spectral_morph_amount",
-    "scale": lambda x: x / 127
-    },
-   "Osc2_Filt_Env_Amt": {
-    # Modulation: Filter envelope → Filter cutoff depth
-    # No direct parameter in Vital — needs custom modulation handler later
-    "vital_target": None,
-    "scale": lambda x: (x - 64) / 64
+    "Osc2_Sync": {
+    "modulate_target": "osc_2_spectral_morph_amount",
+    "modulator": "macro_control_3",  # or env_2 / lfo_2 depending on the patch behavior
+    "amount_scale": lambda x: x / 127.0,
+    "note": "Emulates oscillator sync by modulating spectral morph amount in sync mode"
     },
 
-    "FM_Filt_Env_Amt": {
-    # Modulation: Filter envelope → FM amount
-    # Needs modulation injection later
-    "vital_target": None,
-    "scale": lambda x: (x - 64) / 64,
-    "modulation_hint": {
-        "source": "env_1",
-        "target": "osc_2_phase_mod_amount"  # or whichever oscillator is FM'd
-    }
+
+    "Osc2_Filt_Env_Amt": {
+    "modulate_target": "filter_2_cutoff",
+    "modulator": "env_2",
+    "amount_scale": lambda x: (x - 64) / 64,
+    "note": "Routes Filter Envelope (env_2) to Filter 2 cutoff amount like in Virus"
     },
+
+
+
+    "FM_Filt_Env_Amt": {
+    "modulate_target": "osc_2_spectral_morph_amount",
+    "modulator": "env_2",  # or use "env_1" depending on desired envelope behavior
+    "amount_scale": lambda x: (x - 64) / 64,
+    "note": "Approximates filter envelope → FM amount using Vital's spectral morph amount modulated by env_2"
+    },
+
+
     "Osc2_Keyfollow": {
     # Modulation: note pitch → oscillator 2 tune
     "vital_target": None,
@@ -124,6 +133,7 @@ virus_to_vital_map = {
         "target": "osc_2_tune"
     }
     },
+
     "Bank_Select_Alt": None,  # No parameters or scale
     
     "Osc_Balance": {
@@ -140,6 +150,7 @@ virus_to_vital_map = {
     "Suboscillator_Shape": {
     "handler": "inject_osc3_waveform_from_shape"    
     },
+
     "Osc_Mainvolume": {
     "vital_target": ["osc_1_level", "osc_2_level", "osc_3_level"],
     "scale": lambda x: {
@@ -148,27 +159,32 @@ virus_to_vital_map = {
         "osc_3_level": x / 127
     }
     },
+
     "Noise_Volume": {
     # No direct noise_level parameter in Vital; possibly use sample osc later
     "vital_target": None,
     "scale": lambda x: x / 127
     },
+
     "Ringmodulator_Volume": {
     # ❓ No native ring modulation in Vital — tag for supervisor review
     "vital_target": None,
     "scale": lambda x: x / 127
     },
+
     "Reserved_Unknown": None,
     "Cutoff": {
     "vital_target": "filter_1_cutoff",
     "scale": lambda x: x / 127,
     "extra": enable_filter_1  # ✅ Ensure Filter 1 is ON
     },
+
     "Cutoff2": {
         "vital_target": "filter_2_cutoff",
         "scale": lambda x: (x - 64) / 64,
         "extra": enable_filter_2  # ✅ Ensure Filter 2 is ON
     },
+
     "Filter1_Resonance": {
         "vital_target": "filter_1_resonance",
         "scale": lambda x: x / 127,
@@ -181,16 +197,17 @@ virus_to_vital_map = {
     },
     
     "Filter1_Env_Amt": {
-    # 🔁 Modulation Only: Use this value to create a modulation route from Env1 → Filter1 Cutoff
-    "modulation_target": "filter_1_cutoff",
-    "modulation_source": "env_1",
-    "scale": lambda x: (x - 64) / 64
+    "modulate_target": "filter_1_cutoff",
+    "modulator": "env_1",  # ✅ Amp envelope used as mod source
+    "amount_scale": lambda x: (x - 64) / 64,
+    "note": "Routes amp envelope (env_1) to filter 1 cutoff amount"
     },
+
     "Filter2_Env_Amt": {
-    # 🔁 Modulation Only: Use this value to create a modulation route from Env1 → Filter2 Cutoff
-    "modulation_target": "filter_2_cutoff",
-    "modulation_source": "env_1",
-    "scale": lambda x: (x - 64) / 64
+    "modulate_target": "filter_2_cutoff",
+    "modulator": "env_1",
+    "amount_scale": lambda x: (x - 64) / 64,
+    "note": "Routes amp envelope (env_1) to filter 2 cutoff amount"
     },
 
     "Filter1_Keyfollow": {
@@ -317,30 +334,40 @@ virus_to_vital_map = {
     },
 
     "Osc1_Lfo1_Amount": {
-    # Modulation → LFO1 to Osc1 Pitch (no direct Vital target yet)
-    "vital_target": None,
-    "scale": lambda x: (x - 64) / 64
+    "modulate_target": "osc_1_tune",
+    "modulator": "lfo_1",
+    "amount_scale": lambda x: (x - 64) / 64,
+    "note": "LFO1 modulates Osc1 fine pitch (tune)"
     },
+
     "Osc2_Lfo1_Amount": {
-    # Modulation → LFO1 to Osc2 Pitch (no direct Vital target yet)
-    "vital_target": None,
-    "scale": lambda x: (x - 64) / 64
+        "modulate_target": "osc_2_tune",
+        "modulator": "lfo_1",
+        "amount_scale": lambda x: (x - 64) / 64,
+        "note": "LFO1 modulates Osc2 fine pitch (tune)"
     },
+
     "PW_Lfo1_Amount": {
-        # ⚠️ Modulation: LFO1 → Pulse Width (target not yet mapped in Vital)
-        "vital_target": None,
-        "scale": lambda x: (x - 64) / 64
+    "modulate_target": "osc_1_wave_frame",
+    "modulator": "lfo_1",
+    "amount_scale": lambda x: (x - 64) / 64.0,
+    "note": "LFO1 modulates OSC1 wavetable frame to simulate pulse width"
     },
+    
     "Reso_Lfo1_Amount": {
-        # ⚠️ Modulation: LFO1 → Filter Resonance (target not yet mapped in Vital)
-        "vital_target": None,
-        "scale": lambda x: (x - 64) / 64
+    "modulate_target": "filter_1_resonance",  # Closest Vital target
+    "modulator": "lfo_1",
+    "amount_scale": lambda x: (x - 64) / 64,
+    "note": "LFO1 modulates Filter 1 resonance"
     },
+
     "FiltGain_Lfo1_Amount": {
-        # ⚠️ Modulation: LFO1 → Filter Drive (target not yet mapped in Vital)
-        "vital_target": None,
-        "scale": lambda x: (x - 64) / 64
+        "modulate_target": "filter_1_drive",  # Closest Vital equivalent to filter gain
+        "modulator": "lfo_1",
+        "amount_scale": lambda x: (x - 64) / 64,
+        "note": "LFO1 modulates Filter 1 drive (gain)"
     },
+
 
     "Lfo2_Rate": {
         "vital_target": "lfo_2_frequency",
@@ -387,30 +414,55 @@ virus_to_vital_map = {
     },
    # 🧠 Modulation mappings — no known Vital targets yet, keep for later
 
-    "OscShape_Lfo2_Amount": {
-        "vital_target": None,  # Modulation: LFO2 → Oscillator Shape
-        "scale": lambda x: (x - 64) / 64
-    },
+   "OscShape_Lfo2_Amount": {
+    "modulate_target": "osc_2_wave_frame",
+    "modulator": "lfo_2",
+    "amount_scale": lambda x: (x - 64) / 64,
+   },
 
     "FmAmount_Lfo2_Amount": {
-        "vital_target": None,  # Modulation: LFO2 → FM Amount
-        "scale": lambda x: (x - 64) / 64
+    "modulate_target": "osc_2_spectral_morph_amount",  # Vital's closest approximation to FM amount
+    "modulator": "lfo_2",
+    "amount_scale": lambda x: (x - 64) / 64,
+    "note": "LFO2 modulates spectral morph amount to approximate FM depth for Oscillator 2"
     },
 
     "Cutoff1_Lfo2_Amount": {
-        "vital_target": None,  # Modulation: LFO2 → Filter 1 Cutoff
-        "scale": lambda x: (x - 64) / 64
+        "modulate_target": "filter_1_cutoff",
+        "modulator": "lfo_2",
+        "amount_scale": lambda x: (x - 64) / 64,
+        "note": "LFO2 modulates Filter 1 cutoff"
     },
 
     "Cutoff2_Lfo2_Amount": {
-        "vital_target": None,  # Modulation: LFO2 → Filter 2 Cutoff
-        "scale": lambda x: (x - 64) / 64
+        "modulate_target": "filter_2_cutoff",
+        "modulator": "lfo_2",
+        "amount_scale": lambda x: (x - 64) / 64,
+        "note": "LFO2 modulates Filter 2 cutoff"
     },
 
-    "Panorama_Lfo2_Amount": {
-        "vital_target": None,  # Modulation: LFO2 → Panning
-        "scale": lambda x: (x - 64) / 64
-    },
+    "Panorama_Lfo2_Amount": [
+        {
+            "modulate_target": "osc_1_pan",
+            "modulator": "lfo_2",
+            "amount_scale": lambda x: (x - 64) / 64,
+            "note": "LFO2 modulates Osc1 pan to simulate global panorama"
+        },
+        {
+            "modulate_target": "osc_2_pan",
+            "modulator": "lfo_2",
+            "amount_scale": lambda x: (x - 64) / 64,
+            "note": "LFO2 modulates Osc2 pan to simulate global panorama"
+        },
+        {
+            "modulate_target": "osc_3_pan",
+            "modulator": "lfo_2",
+            "amount_scale": lambda x: (x - 64) / 64,
+            "note": "LFO2 modulates Osc3 pan to simulate global panorama"
+        }
+    ],
+
+
     "Patch_Volume": {
     "vital_target": None,  # ⚠️ No direct Vital equivalent for global volume (possibly handled via macros or output gain)
     "scale": lambda x: x / 127
@@ -636,22 +688,32 @@ virus_to_vital_map = {
     "undefined_157": None,  # B 29 (undocumented)
 
     "Filter1_Env_Polarity": {
-    "vital_target": None,
-    "note": "🟡 Modulation: Not directly supported in Vital. Use negative modulation amount to simulate polarity."
+    "modulate_target": "filter_1_cutoff",
+    "modulator": "env_1",
+    "amount_scale": lambda x: -(abs((x - 64) / 64)),
+    "note": "Simulates inverted polarity by forcing negative envelope depth"
     },
+
     "Filter2_Env_Polarity": {
-        "vital_target": None,
-        "note": "🟡 Modulation: Not directly supported in Vital. Use negative modulation amount to simulate polarity."
+        "modulate_target": "filter_2_cutoff",
+        "modulator": "env_1",
+        "amount_scale": lambda x: -(abs((x - 64) / 64)),
+        "note": "Simulates inverted polarity by forcing negative envelope depth"
     },
+
     "Filter2_Cutoff_Link": {
-    "vital_target": None,
-    "note": "🟡 Modulation: No direct cutoff link in Vital. Could simulate via macro modulation."
-    },   # B 32 => #160
-    "Filter_Keytrack_Base": {
-    "vital_target": None,
-    "scale": lambda x: (x / 127) * 120 - 60,
-    "note": "🟡 Modulation: used to influence keytrack center point, no direct Vital equivalent"
+        "modulate_target": "filter_2_cutoff",
+        "modulator": "macro_control_3",  # ⛔ Fallback: could use macro to simulate linked movement
+        "amount_scale": lambda x: (x / 127),
+        "note": "Approximates Filter1→Filter2 cutoff link using macro modulation"
     },
+
+    "Filter_Keytrack_Base": {
+        "vital_target": None,
+        "scale": lambda x: (x / 127) * 120 - 60,
+        "note": "Vital doesn't support a moving keytrack base; skipping this"
+    },
+
     "undefined_162": None,         # B 34 (undocumented)
 
     "Osc_Init_Phase": {
@@ -709,52 +771,96 @@ virus_to_vital_map = {
     "undefined_191": None,
 
     "Osc1_Shape_Velocity": {
-    "vital_target": None,
-    "note": "Modulation – map velocity to OSC1 warp via macro or modulation slot"
+    "modulate_target": "osc_1_wave_frame",
+    "modulator": "velocity",
+    "amount_scale": lambda x: (x / 127.0) * 0.5,
+    "note": "Velocity modulates OSC1 wave position (approximates shape morph)"
     },
+
     "Osc2_Shape_Velocity": {
-        "vital_target": None,
-        "note": "Modulation – map velocity to OSC2 warp via macro or modulation slot"
+        "modulate_target": "osc_2_wave_frame",
+        "modulator": "velocity",
+        "amount_scale": lambda x: (x / 127.0) * 0.5,
+        "note": "Velocity modulates OSC2 wave position (approximates shape morph)"
     },
-   "PulseWidth_Velocity": {
-    "vital_target": None,
-    "note": "Modulation – route velocity to pulse width via macro or modulation"
+
+    "PulseWidth_Velocity": {
+        "modulate_target": "osc_1_wave_frame",
+        "modulator": "velocity",
+        "amount_scale": lambda x: (x / 127.0) * 0.4,
+        "note": "Velocity modulates OSC1 wave frame to approximate pulse width depth"
     },
+
     "Fm_Amount_Velocity": {
-        "vital_target": None,
-        "note": "Modulation – route velocity to FM amount via macro or modulation"
+        "modulate_target": "osc_2_spectral_morph_amount",
+        "modulator": "velocity",
+        "amount_scale": lambda x: (x / 127.0),
+        "note": "Velocity modulates FM amount using spectral morphing in Vital"
     },
+
     
     "undefined_196": None,
     "undefined_197": None,
 
    "Filter1_EnvAmt_Velocity": {
-    "vital_target": None,
-    "note": "Modulation – no direct Vital equivalent"
+    "modulate_target": "filter_1_cutoff",
+    "modulator": "velocity",
+    "amount_scale": lambda x: (x / 127.0) * 0.4,
+    "note": "Velocity modulates filter envelope depth on Filter 1 (approximation)"
     },
+
     "Filter1_EnvAmt_Velocity_dup": {
-        "vital_target": None,
-        "note": "Duplicate or undefined"
+        "modulate_target": "filter_1_cutoff",
+        "modulator": "velocity",
+        "amount_scale": lambda x: (x / 127.0) * 0.4,
+        "note": "Duplicate of Filter1_EnvAmt_Velocity, retained for completeness"
     },
+
     "Resonance1_Velocity": {
-    "vital_target": None,
-    "note": "Modulation – no direct Vital equivalent"
+        "modulate_target": "filter_1_resonance",
+        "modulator": "velocity",
+        "amount_scale": lambda x: (x / 127.0) * 0.3,
+        "note": "Velocity modulates Filter 1 resonance (approximated)"
     },
+
     "Resonance2_Velocity": {
-        "vital_target": None,
-        "note": "Modulation – no direct Vital equivalent"
+        "modulate_target": "filter_2_resonance",
+        "modulator": "velocity",
+        "amount_scale": lambda x: (x / 127.0) * 0.3,
+        "note": "Velocity modulates Filter 2 resonance (approximated)"
     },
+
     "undefined_202": None,
     "undefined_203": None,
 
     "Amp_Velocity": {
-    "vital_target": None,
-    "note": "Modulation – no direct Vital equivalent"
+    "modulate_target": "macro_control_1",  # Or directly to env_1_sustain if desired
+    "modulator": "velocity",
+    "amount_scale": lambda x: x / 127.0,
+    "note": "Velocity modulates amplitude via Macro 1 (approximation of amp control)"
+},
+
+"Panorama_Velocity": [
+    {
+        "modulate_target": "osc_1_pan",
+        "modulator": "velocity",
+        "amount_scale": lambda x: (x - 64) / 64.0,
+        "note": "Velocity modulates pan position of Oscillator 1"
     },
-    "Panorama_Velocity": {
-    "vital_target": None,
-    "note": "Modulation – no direct Vital equivalent"
+    {
+        "modulate_target": "osc_2_pan",
+        "modulator": "velocity",
+        "amount_scale": lambda x: (x - 64) / 64.0,
+        "note": "Velocity modulates pan position of Oscillator 2"
     },
+    {
+        "modulate_target": "osc_3_pan",
+        "modulator": "velocity",
+        "amount_scale": lambda x: (x - 64) / 64.0,
+        "note": "Velocity modulates pan position of Oscillator 3"
+    }
+    ],
+
     "undefined_206": None,
     "undefined_207": None,
 

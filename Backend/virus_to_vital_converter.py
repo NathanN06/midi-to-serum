@@ -99,10 +99,16 @@ def load_sysex_txt_files(folder_path: str, default_vital_patch: str) -> List[Tup
         # 3) Inject effects
         inject_all_effects(virus_params, base_dict)
 
-        # 4) Inject oscillator frames
+        # 4) Inject modulations (NEW)
+        from modulations.master_m import apply_virus_modulations
+        from virus_to_vital_map import virus_to_vital_map  # or wherever it's stored
+        apply_virus_modulations(virus_params, base_dict, virus_to_vital_map)
+
+        # 5) Inject oscillator frames
         osc1_frame = generate_osc1_frame_from_sysex(virus_params)
         osc2_frame = generate_osc2_frame_from_sysex(virus_params)
         osc3_frame = generate_osc3_frame_from_sysex(virus_params)
+
 
         modified_json = json.dumps(base_dict)
         modified_json = replace_three_wavetables(
